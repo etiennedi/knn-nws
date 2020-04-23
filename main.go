@@ -64,7 +64,7 @@ func (g *graph) print() {
 
 func main() {
 	rand.Seed(time.Now().UnixNano())
-	vectors := parseVectorsFromFile("./en-vectors.txt", 1000)
+	vectors := parseVectorsFromFile("./vectors.txt", 1000)
 	k := 10
 
 	g := &graph{}
