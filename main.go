@@ -10,6 +10,11 @@ import (
 	"github.com/davecgh/go-spew/spew"
 )
 
+var (
+	spentSorting  time.Duration
+	spentContains time.Duration
+)
+
 type vertex struct {
 	object string
 	vector []float32
@@ -70,6 +75,7 @@ func main() {
 	g := &graph{}
 
 	fmt.Printf("building")
+	before := time.Now()
 	for i, vector := range vectors {
 		g.insert(&vertex{object: vector.object, vector: vector.vector}, k)
 
@@ -79,13 +85,15 @@ func main() {
 	}
 	fmt.Printf("\n")
 
-	before := time.Now()
-	// res := g.knnSearch(&vertex{vector: car}, 7, 20)
-	entry := g.vertices[rand.Intn(len(g.vertices))]
-	res := search(car, entry)
-	took := time.Since(before)
+	fmt.Printf("\nsorting: %s\ncontains: %s\ntotal: %s\n\n", spentSorting, spentContains, time.Since(before))
+	spentSorting, spentContains = 0, 0
+
+	before = time.Now()
+	res := g.knnSearch(&vertex{vector: car}, 5, 15)
+	// entry := g.vertices[rand.Intn(len(g.vertices))]
+	// res := search(car, entry)
+	fmt.Printf("\nsorting: %s\ncontains: %s\ntotal: %s\n\n", spentSorting, spentContains, time.Since(before))
 	spew.Dump(res)
-	fmt.Printf("search took %s", took)
 
 }
 
@@ -127,10 +135,11 @@ func insertOrdered(list []vertexWithDistance, itemToInsert *vertex, query []floa
 	}
 
 	newList := append(list, newItem)
+	before := time.Now()
 	sort.Slice(newList, func(a, b int) bool {
 		return newList[a].distance < newList[b].distance
 	})
-
+	spentSorting += time.Since(before)
 	return newList
 }
 
@@ -145,9 +154,11 @@ func insertMultipleOrdered(list []vertexWithDistance, itemsToInsert []vertexWith
 	}
 
 	newList := append(list, toInsert...)
+	before := time.Now()
 	sort.Slice(newList, func(a, b int) bool {
 		return newList[a].distance < newList[b].distance
 	})
+	spentSorting += time.Since(before)
 
 	return newList
 }
@@ -169,6 +180,11 @@ func remove(list []vertexWithDistance, itemToRemove *vertex) []vertexWithDistanc
 }
 
 func contained(list []vertexWithDistance, item *vertex) bool {
+	before := time.Now()
+	defer func() {
+		spentContains += time.Since(before)
+	}()
+
 	for _, curr := range list {
 		if curr.vertex == item {
 			return true
