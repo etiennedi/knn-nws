@@ -68,6 +68,21 @@ func (g *graph) print() {
 }
 
 func main() {
+	// a := &vertex{object: "bag"}
+	// tree := &binarySearchTree{}
+	// tree.insert(&vertex{object: "foo"}, 0.1)
+	// tree.insert(&vertex{object: "bar"}, 0.8)
+	// tree.insert(&vertex{object: "baz"}, 0.5)
+	// tree.insert(a, 0.6)
+	// tree.insert(a, 0.6)
+	// tree.insert(&vertex{object: "foz"}, 2.1)
+	// tree.insert(&vertex{object: "zof"}, 0.01)
+
+	// tree.printInOrder()
+	// fmt.Println(tree.contains(a, 0.6))
+	// fmt.Println(tree.contains(&vertex{object: "not contained"}, 0.7))
+
+	// fmt.Println(tree.minimum().data)
 	rand.Seed(time.Now().UnixNano())
 	vectors := parseVectorsFromFile("./vectors.txt", 1000)
 	k := 10
