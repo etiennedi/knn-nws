@@ -11,12 +11,13 @@ import (
 )
 
 var (
-	startTime       time.Time
-	spentInserting  time.Duration
-	spentContains   time.Duration
-	spentFlattening time.Duration
-	spentDeleting   time.Duration
-	spentDistancing time.Duration
+	startTime        time.Time
+	spentInserting   time.Duration
+	spentContains    time.Duration
+	spentFlattening  time.Duration
+	spentDeleting    time.Duration
+	spentDistancing  time.Duration
+	spentReadingDisk time.Duration
 )
 
 func resetTimes() {
@@ -25,6 +26,7 @@ func resetTimes() {
 	spentFlattening = 0
 	spentDeleting = 0
 	spentDistancing = 0
+	spentReadingDisk = 0
 	startTime = time.Now()
 }
 
@@ -35,18 +37,21 @@ contains: %s
 flattening: %s
 deleting: %s
 distancing: %s
+reading disk: %s
 total: %s
-`, spentInserting, spentContains, spentFlattening, spentDeleting, spentDistancing, time.Since(startTime))
+`, spentInserting, spentContains, spentFlattening, spentDeleting,
+		spentDistancing, spentReadingDisk, time.Since(startTime))
 }
 
 type vertex struct {
 	object         string
 	internalvector []float32
 	edges          []*vertex
+	index          int64
 }
 
 func (v vertex) vector() []float32 {
-	vec, err := readVectorFromFile(v.object)
+	vec, err := readVectorFromFile(v.index)
 	if err != nil {
 		panic(err)
 	}
@@ -102,20 +107,25 @@ func (g *graph) print() {
 
 func main() {
 	rand.Seed(time.Now().UnixNano())
-	vectors := parseVectorsFromFile("./vectors.txt", 10000)
+	vectors := parseVectorsFromFile("./vectors.txt", 300)
 	k := 50
 
 	g := &graph{}
 
-	resetTimes()
 	fmt.Printf("building")
-	start := time.Now()
 	for i, vector := range vectors {
-		err := storeFile(vector.object, vector.internalvector)
+		vector.index = int64(i)
+		err := storeToFile(int64(i), vector.internalvector)
 		if err != nil {
 			log.Fatal(err)
 		}
-		g.insert(&vertex{object: vector.object}, k)
+	}
+
+	initMagicMappedFile()
+
+	start := time.Now()
+	for i, vector := range vectors {
+		g.insert(&vertex{object: vector.object, index: vector.index}, k)
 
 		if i%50 == 0 {
 			fmt.Printf("last 50 took %s\n", time.Since(start))
@@ -123,20 +133,10 @@ func main() {
 		}
 	}
 
-	resetTimes()
-	v, err := readVectorFromFile("cat")
-	if err != nil {
-		log.Fatal(err)
-	}
 	printTimes()
-	spew.Dump(v)
-
-	// fmt.Printf("\n")
-
-	// printTimes()
 
 	resetTimes()
-	res := g.knnSearch(&vertex{object: "car"}, 1, 15)
+	res := g.knnSearch(&vertex{index: 17}, 1, 15)
 	// entry := g.vertices[rand.Intn(len(g.vertices))]
 	// res := search(car, entry)
 	printTimes()

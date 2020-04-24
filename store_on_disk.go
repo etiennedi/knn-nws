@@ -3,22 +3,58 @@ package main
 import (
 	"encoding/binary"
 	"fmt"
-	"io/ioutil"
+	"log"
 	"math"
 	"os"
+	"syscall"
+	"time"
 )
 
-func storeFile(name string, vector []float32) error {
-	f, err := os.Create(fmt.Sprintf("./data/%s", name))
+const vectorDimensions = 600
+const vectorSize = 4 // float32
+
+var magicMappedFile []byte
+
+func initMagicMappedFile() {
+	path := "./data/vectors"
+	file, err := os.Open(path)
+	if err != nil {
+		log.Fatalf("Can't open the knn file at %s: %+v", path, err)
+	}
+
+	file_info, err := file.Stat()
+	if err != nil {
+		log.Fatalf("Can't stat the knn file at %s: %+v", path, err)
+	}
+
+	mmap, err := syscall.Mmap(int(file.Fd()), 0, int(file_info.Size()), syscall.PROT_READ, syscall.MAP_SHARED)
+	if err != nil {
+		log.Fatalf("Can't mmap the knn file %s: %+v", path, err)
+	}
+
+	magicMappedFile = mmap
+}
+
+func storeToFile(index int64, vector []float32) error {
+	before := time.Now()
+	f, err := os.OpenFile("./data/vectors", os.O_RDWR, 0644)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-
-	_, err = f.Write(vectorToBytes(vector))
+	f.Seek(index*vectorDimensions*vectorSize, 0)
+	n, err := f.Write(vectorToBytes(vector))
 	if err != nil {
 		return err
 	}
+
+	err = f.Sync()
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("%d - %d bytes written in %s\n", index, n, time.Since(before))
+
 	return nil
 }
 
@@ -50,20 +86,15 @@ func vectorFromBytes(in []byte) ([]float32, error) {
 	return out, nil
 }
 
-func readVectorFromFile(name string) ([]float32, error) {
-	// before := time.Now()
-	// defer func() {
-	// 	fmt.Printf("reading file took %s\n", time.Since(before))
-	// }()
-	f, err := os.Open(fmt.Sprintf("./data/%s", name))
-	if err != nil {
-		return nil, err
-	}
+func readVectorFromFile(i int64) ([]float32, error) {
+	before := time.Now()
+	defer func() {
+		spentReadingDisk += time.Since(before)
+	}()
 
-	bytes, err := ioutil.ReadAll(f)
-	if err != nil {
-		return nil, err
-	}
+	start := i * vectorDimensions * vectorSize
+	end := start + vectorDimensions*vectorSize
+	bytes := magicMappedFile[start:end]
 
 	return vectorFromBytes(bytes)
 }
