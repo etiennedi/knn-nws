@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"math"
 	"math/rand"
 	"time"
@@ -39,9 +40,18 @@ total: %s
 }
 
 type vertex struct {
-	object string
-	vector []float32
-	edges  []*vertex
+	object         string
+	internalvector []float32
+	edges          []*vertex
+}
+
+func (v vertex) vector() []float32 {
+	vec, err := readVectorFromFile(v.object)
+	if err != nil {
+		panic(err)
+	}
+
+	return vec
 }
 
 func (v vertex) String() string {
@@ -101,19 +111,32 @@ func main() {
 	fmt.Printf("building")
 	start := time.Now()
 	for i, vector := range vectors {
-		g.insert(&vertex{object: vector.object, vector: vector.vector}, k)
+		err := storeFile(vector.object, vector.internalvector)
+		if err != nil {
+			log.Fatal(err)
+		}
+		g.insert(&vertex{object: vector.object}, k)
 
 		if i%50 == 0 {
 			fmt.Printf("last 50 took %s\n", time.Since(start))
 			start = time.Now()
 		}
 	}
-	fmt.Printf("\n")
-
-	printTimes()
 
 	resetTimes()
-	res := g.knnSearch(&vertex{vector: car}, 1, 15)
+	v, err := readVectorFromFile("cat")
+	if err != nil {
+		log.Fatal(err)
+	}
+	printTimes()
+	spew.Dump(v)
+
+	// fmt.Printf("\n")
+
+	// printTimes()
+
+	resetTimes()
+	res := g.knnSearch(&vertex{object: "car"}, 1, 15)
 	// entry := g.vertices[rand.Intn(len(g.vertices))]
 	// res := search(car, entry)
 	printTimes()
@@ -125,12 +148,24 @@ func search(query []float32, entryPoint *vertex) *vertex {
 	var current *vertex
 	var next *vertex
 	var minDist float32
+	var vectorCache map[string][]float32
+
+	getVector := func(vertex *vertex) []float32 {
+		vec, ok := vectorCache[vertex.object]
+		if !ok {
+			vec := vertex.vector()
+			vectorCache[vertex.object] = vertex.vector()
+			return vec
+		}
+
+		return vec
+	}
 
 	current = entryPoint
-	minDist = cosineDist(current.vector, query)
+	minDist = cosineDist(getVector(current), query)
 
 	for _, friend := range current.edges {
-		friendDist := cosineDist(friend.vector, query)
+		friendDist := cosineDist(getVector(friend), query)
 		if friendDist < minDist {
 			minDist = friendDist
 			next = friend
@@ -151,15 +186,26 @@ type vertexWithDistance struct {
 
 func (g *graph) knnSearch(queryObj *vertex, maximumSearches int, k int) []vertexWithDistance {
 	var (
-		tempRes    = &binarySearchTree{}
-		candidates = &binarySearchTree{}
-		visitedSet = &binarySearchTree{}
-		result     = &binarySearchTree{}
+		tempRes     = &binarySearchTree{}
+		candidates  = &binarySearchTree{}
+		visitedSet  = &binarySearchTree{}
+		result      = &binarySearchTree{}
+		vectorCache = map[string][]float32{}
 	)
+	getVector := func(vertex *vertex) []float32 {
+		vec, ok := vectorCache[vertex.object]
+		if !ok {
+			vec := vertex.vector()
+			vectorCache[vertex.object] = vertex.vector()
+			return vec
+		}
+
+		return vec
+	}
 
 	for i := 0; i < maximumSearches; i++ {
 		entry := g.vertices[rand.Intn(len(g.vertices))]
-		candidates.insert(entry, cosineDist(queryObj.vector, entry.vector))
+		candidates.insert(entry, cosineDist(getVector(queryObj), getVector(entry)))
 
 		hops := 0
 		for {
@@ -179,7 +225,7 @@ func (g *graph) knnSearch(queryObj *vertex, maximumSearches int, k int) []vertex
 			}
 
 			for _, friend := range candidateData.edges {
-				friendDist := cosineDist(friend.vector, queryObj.vector)
+				friendDist := cosineDist(getVector(friend), getVector(queryObj))
 				if !visitedSet.contains(friend, friendDist) {
 					visitedSet.insert(friend, friendDist)
 					tempRes.insert(friend, friendDist)

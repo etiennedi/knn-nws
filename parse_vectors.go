@@ -9,6 +9,7 @@ import (
 )
 
 func parseVectorsFromFile(fileName string, limit int) []vertex {
+	resetTimes()
 	file, err := os.Open(fileName)
 	defer file.Close()
 	if err != nil {
@@ -28,6 +29,7 @@ func parseVectorsFromFile(fileName string, limit int) []vertex {
 		out[i] = parseVectorRow(row)
 		i++
 	}
+	printTimes()
 
 	return shuffle(out)
 }
@@ -47,7 +49,7 @@ func parseVectorRow(row string) vertex {
 		vector[i] = float32(parsed)
 	}
 
-	return vertex{object: word, vector: vector}
+	return vertex{object: word, internalvector: vector}
 }
 
 func shuffle(in []vertex) []vertex {
