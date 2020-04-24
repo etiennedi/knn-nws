@@ -107,14 +107,14 @@ func (g *graph) print() {
 
 func main() {
 	rand.Seed(time.Now().UnixNano())
-	vectors := parseVectorsFromFile("./vectors.txt", 300)
+	vectors := parseVectorsFromFile("./vectors.txt", 10000)
 	k := 50
 
 	g := &graph{}
 
 	fmt.Printf("building")
 	for i, vector := range vectors {
-		vector.index = int64(i)
+		vectors[i].index = int64(i)
 		err := storeToFile(int64(i), vector.internalvector)
 		if err != nil {
 			log.Fatal(err)
@@ -279,5 +279,6 @@ func cosineDist(a, b []float32) float32 {
 	}
 
 	spentDistancing += time.Since(before)
+	// fmt.Printf("dist %f\n", sim)
 	return 1 - sim
 }

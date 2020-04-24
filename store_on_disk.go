@@ -36,6 +36,7 @@ func initMagicMappedFile() {
 }
 
 func storeToFile(index int64, vector []float32) error {
+
 	before := time.Now()
 	f, err := os.OpenFile("./data/vectors", os.O_RDWR, 0644)
 	if err != nil {
@@ -44,11 +45,6 @@ func storeToFile(index int64, vector []float32) error {
 	defer f.Close()
 	f.Seek(index*vectorDimensions*vectorSize, 0)
 	n, err := f.Write(vectorToBytes(vector))
-	if err != nil {
-		return err
-	}
-
-	err = f.Sync()
 	if err != nil {
 		return err
 	}
