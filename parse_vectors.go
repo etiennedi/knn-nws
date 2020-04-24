@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"math/rand"
 	"os"
 	"strconv"
 	"strings"
@@ -28,7 +29,7 @@ func parseVectorsFromFile(fileName string, limit int) []vertex {
 		i++
 	}
 
-	return out
+	return shuffle(out)
 }
 
 func parseVectorRow(row string) vertex {
@@ -47,4 +48,14 @@ func parseVectorRow(row string) vertex {
 	}
 
 	return vertex{object: word, vector: vector}
+}
+
+func shuffle(in []vertex) []vertex {
+	out := make([]vertex, len(in))
+	perm := rand.Perm(len(in))
+	for i, v := range perm {
+		out[v] = in[i]
+	}
+
+	return out
 }

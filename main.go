@@ -4,16 +4,39 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
-	"sort"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
 )
 
 var (
-	spentSorting  time.Duration
-	spentContains time.Duration
+	startTime       time.Time
+	spentInserting  time.Duration
+	spentContains   time.Duration
+	spentFlattening time.Duration
+	spentDeleting   time.Duration
+	spentDistancing time.Duration
 )
+
+func resetTimes() {
+	spentInserting = 0
+	spentContains = 0
+	spentFlattening = 0
+	spentDeleting = 0
+	spentDistancing = 0
+	startTime = time.Now()
+}
+
+func printTimes() {
+	fmt.Printf(`
+inserting: %s
+contains: %s
+flattening: %s
+deleting: %s
+distancing: %s
+total: %s
+`, spentInserting, spentContains, spentFlattening, spentDeleting, spentDistancing, time.Since(startTime))
+}
 
 type vertex struct {
 	object string
@@ -48,7 +71,7 @@ func (g *graph) insert(vertexToInsert *vertex, k int) {
 		return
 	}
 
-	neighbors := g.knnSearch(vertexToInsert, 5, k)
+	neighbors := g.knnSearch(vertexToInsert, 1, k)
 	for _, neighbor := range neighbors {
 		neighbor.vertex.edges = append(neighbor.vertex.edges, vertexToInsert)
 		vertexToInsert.edges = append(vertexToInsert.edges, neighbor.vertex)
@@ -68,46 +91,32 @@ func (g *graph) print() {
 }
 
 func main() {
-	// a := &vertex{object: "bag"}
-	// tree := &binarySearchTree{}
-	// tree.insert(&vertex{object: "foo"}, 0.1)
-	// tree.insert(&vertex{object: "bar"}, 0.8)
-	// tree.insert(&vertex{object: "baz"}, 0.5)
-	// tree.insert(a, 0.6)
-	// tree.insert(a, 0.6)
-	// tree.insert(&vertex{object: "foz"}, 2.1)
-	// tree.insert(&vertex{object: "zof"}, 0.01)
-
-	// tree.printInOrder()
-	// fmt.Println(tree.contains(a, 0.6))
-	// fmt.Println(tree.contains(&vertex{object: "not contained"}, 0.7))
-
-	// fmt.Println(tree.minimum().data)
 	rand.Seed(time.Now().UnixNano())
-	vectors := parseVectorsFromFile("./vectors.txt", 1000)
-	k := 10
+	vectors := parseVectorsFromFile("./vectors.txt", 10000)
+	k := 50
 
 	g := &graph{}
 
+	resetTimes()
 	fmt.Printf("building")
-	before := time.Now()
+	start := time.Now()
 	for i, vector := range vectors {
 		g.insert(&vertex{object: vector.object, vector: vector.vector}, k)
 
 		if i%50 == 0 {
-			fmt.Printf(".")
+			fmt.Printf("last 50 took %s\n", time.Since(start))
+			start = time.Now()
 		}
 	}
 	fmt.Printf("\n")
 
-	fmt.Printf("\nsorting: %s\ncontains: %s\ntotal: %s\n\n", spentSorting, spentContains, time.Since(before))
-	spentSorting, spentContains = 0, 0
+	printTimes()
 
-	before = time.Now()
-	res := g.knnSearch(&vertex{vector: car}, 5, 15)
+	resetTimes()
+	res := g.knnSearch(&vertex{vector: car}, 1, 15)
 	// entry := g.vertices[rand.Intn(len(g.vertices))]
 	// res := search(car, entry)
-	fmt.Printf("\nsorting: %s\ncontains: %s\ntotal: %s\n\n", spentSorting, spentContains, time.Since(before))
+	printTimes()
 	spew.Dump(res)
 
 }
@@ -135,80 +144,6 @@ func search(query []float32, entryPoint *vertex) *vertex {
 	return search(query, next)
 }
 
-// TODO: replace with binary tree for optimal perfomance
-func insertOrdered(list []vertexWithDistance, itemToInsert *vertex, query []float32) []vertexWithDistance {
-	newItem := vertexWithDistance{
-		vertex:   itemToInsert,
-		distance: cosineDist(itemToInsert.vector, query),
-	}
-
-	for _, current := range list {
-		if current.vertex == itemToInsert {
-			// is already in the list, nothing to do
-			return list
-		}
-	}
-
-	newList := append(list, newItem)
-	before := time.Now()
-	sort.Slice(newList, func(a, b int) bool {
-		return newList[a].distance < newList[b].distance
-	})
-	spentSorting += time.Since(before)
-	return newList
-}
-
-func insertMultipleOrdered(list []vertexWithDistance, itemsToInsert []vertexWithDistance, query []float32) []vertexWithDistance {
-	var toInsert []vertexWithDistance
-	for _, item := range itemsToInsert {
-		if contained(list, item.vertex) {
-			continue
-		}
-
-		toInsert = append(toInsert, item)
-	}
-
-	newList := append(list, toInsert...)
-	before := time.Now()
-	sort.Slice(newList, func(a, b int) bool {
-		return newList[a].distance < newList[b].distance
-	})
-	spentSorting += time.Since(before)
-
-	return newList
-}
-
-func remove(list []vertexWithDistance, itemToRemove *vertex) []vertexWithDistance {
-	posToDelete := 0
-	for i, current := range list {
-		if current.vertex == itemToRemove {
-			posToDelete = i
-			break
-		}
-	}
-
-	copy(list[posToDelete:], list[posToDelete+1:])
-	// list[len(list)-1] = nil // to avoid mem leak
-	list = list[:len(list)-1]
-
-	return list
-}
-
-func contained(list []vertexWithDistance, item *vertex) bool {
-	before := time.Now()
-	defer func() {
-		spentContains += time.Since(before)
-	}()
-
-	for _, curr := range list {
-		if curr.vertex == item {
-			return true
-		}
-	}
-
-	return false
-}
-
 type vertexWithDistance struct {
 	vertex   *vertex
 	distance float32
@@ -216,44 +151,58 @@ type vertexWithDistance struct {
 
 func (g *graph) knnSearch(queryObj *vertex, maximumSearches int, k int) []vertexWithDistance {
 	var (
-		// TODO: These shouldn't be simply slices, but binary search trees for more
-		// efficient adding
-		tempRes    []vertexWithDistance
-		candidates []vertexWithDistance
-		visitedSet []vertexWithDistance
-		result     []vertexWithDistance
+		tempRes    = &binarySearchTree{}
+		candidates = &binarySearchTree{}
+		visitedSet = &binarySearchTree{}
+		result     = &binarySearchTree{}
 	)
 
 	for i := 0; i < maximumSearches; i++ {
 		entry := g.vertices[rand.Intn(len(g.vertices))]
-		candidates = insertOrdered(candidates, entry, queryObj.vector)
+		candidates.insert(entry, cosineDist(queryObj.vector, entry.vector))
 
+		hops := 0
 		for {
-			if len(candidates) == 0 {
+			hops++
+			if candidates.root == nil {
 				break
 			}
-			candidate := candidates[0] // there is always at least one and it is ordered by distance, so this is the closest
-			candidates = remove(candidates, candidate.vertex)
+			candidate := candidates.minimum()
+			candidateData := candidate.data
+			candidateDist := candidate.dist
+			candidates.delete(candidateData, candidateDist)
 
-			if len(result) >= k &&
-				candidate.distance > result[k-1].distance {
+			resultSlice := tempRes.flattenInOrder()
+			if len(resultSlice) >= k &&
+				candidateDist > resultSlice[k-1].dist {
 				break
 			}
 
-			for _, friend := range candidate.vertex.edges {
-				if !contained(visitedSet, friend) {
-					visitedSet = insertOrdered(visitedSet, friend, queryObj.vector)
-					tempRes = insertOrdered(tempRes, friend, queryObj.vector)
-					candidates = insertOrdered(candidates, friend, queryObj.vector)
+			for _, friend := range candidateData.edges {
+				friendDist := cosineDist(friend.vector, queryObj.vector)
+				if !visitedSet.contains(friend, friendDist) {
+					visitedSet.insert(friend, friendDist)
+					tempRes.insert(friend, friendDist)
+					candidates.insert(friend, friendDist)
 				}
-
 			}
 		} // end for
 
-		result = insertMultipleOrdered(result, tempRes, queryObj.vector)
+		for _, elem := range tempRes.flattenInOrder() {
+			result.insert(elem.data, elem.dist)
+		}
 	}
 
-	return result[:k]
+	out := make([]vertexWithDistance, k)
+	results := result.flattenInOrder()
+	for i := range out {
+		out[i] = vertexWithDistance{
+			vertex:   results[i].data,
+			distance: results[i].dist,
+		}
+	}
+
+	return out
 }
 
 func cosineSim(a, b []float32) (float32, error) {
@@ -277,10 +226,12 @@ func cosineSim(a, b []float32) (float32, error) {
 }
 
 func cosineDist(a, b []float32) float32 {
+	before := time.Now()
 	sim, err := cosineSim(a, b)
 	if err != nil {
 		panic(err)
 	}
 
+	spentDistancing += time.Since(before)
 	return 1 - sim
 }
