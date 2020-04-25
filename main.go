@@ -5,11 +5,10 @@ import (
 	"log"
 	"math"
 	"math/rand"
+	"net/http"
 	"runtime"
 	"sync"
 	"time"
-
-	"github.com/davecgh/go-spew/spew"
 )
 
 var (
@@ -189,23 +188,24 @@ func main() {
 	printTimes()
 
 	// let remaining workers finish and everything calm down
-	time.Sleep(500 * time.Millisecond)
 
 	resetTimes()
 
-	var indexForCar int64
-	for _, vec := range vectors {
-		if vec.object == "car" {
-			indexForCar = vec.index
-			break
+	getIndex := func(name string) int64 {
+		for _, vec := range vectors {
+			if vec.object == name {
+				return vec.index
+			}
 		}
+		return -1
 	}
 
-	res := g.knnSearch(&vertex{index: indexForCar}, 1, 15)
-	// entry := g.vertices[rand.Intn(len(g.vertices))]
-	// res := search(car, entry)
-	printTimes()
-	spew.Dump(res)
+	handler := newHandlers(g, getIndex)
+	http.Handle("/objects", http.HandlerFunc(handler.getObjects))
+	err := http.ListenAndServe(":8080", nil)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 }
 
