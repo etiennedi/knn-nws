@@ -5,6 +5,8 @@ import (
 	"log"
 	"math"
 	"math/rand"
+	"runtime"
+	"sync"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
@@ -48,10 +50,14 @@ type vertex struct {
 	internalvector []float32
 	edges          []*vertex
 	index          int64
+	sync.RWMutex
 }
 
-func (v vertex) vector() []float32 {
-	vec, err := readVectorFromFile(v.index)
+func (v *vertex) vector() []float32 {
+	v.RLock()
+	index := v.index
+	v.RUnlock()
+	vec, err := readVectorFromFile(index)
 	if err != nil {
 		panic(err)
 	}
@@ -59,23 +65,37 @@ func (v vertex) vector() []float32 {
 	return vec
 }
 
-func (v vertex) String() string {
+func (v *vertex) String() string {
+	v.RLock()
+	defer v.RUnlock()
 	return v.object
 }
 
 type graph struct {
+	sync.RWMutex
 	vertices []*vertex
 }
 
 func (g *graph) insert(vertexToInsert *vertex, k int) {
-	if len(g.vertices) == 0 {
+	g.RLock()
+	currentLen := len(g.vertices)
+	g.RUnlock()
+
+	if currentLen == 0 {
 		// nothing to connect, simply insert
+		g.Lock()
 		g.vertices = []*vertex{vertexToInsert}
+		g.Unlock()
 		return
 	}
 
-	if len(g.vertices) < k {
+	if currentLen < k {
+		// this is only true in the very beginning, we can lock the entire graph
+		// without any performance penalty as this case will only run a max of k
+		// times
+		g.Lock()
 		// insert and connect to everything
+
 		for i, elem := range g.vertices {
 			elem.edges = append(elem.edges, vertexToInsert)
 			g.vertices[i] = elem
@@ -83,15 +103,22 @@ func (g *graph) insert(vertexToInsert *vertex, k int) {
 		}
 
 		g.vertices = append(g.vertices, vertexToInsert)
+		g.Unlock()
 		return
 	}
 
 	neighbors := g.knnSearch(vertexToInsert, 1, k)
 	for _, neighbor := range neighbors {
+		neighbor.vertex.Lock()
 		neighbor.vertex.edges = append(neighbor.vertex.edges, vertexToInsert)
+		neighbor.vertex.Unlock()
+
 		vertexToInsert.edges = append(vertexToInsert.edges, neighbor.vertex)
 	}
+
+	g.Lock()
 	g.vertices = append(g.vertices, vertexToInsert)
+	g.Unlock()
 }
 
 func (g *graph) print() {
@@ -105,14 +132,27 @@ func (g *graph) print() {
 	}
 }
 
+var k = 50
+
+type job struct {
+	index  int64
+	object string
+}
+
+func worker(graph *graph, id int, jobs chan job) {
+	for job := range jobs {
+		graph.insert(&vertex{object: job.object, index: job.index}, k)
+	}
+}
+
 func main() {
 	rand.Seed(time.Now().UnixNano())
 	vectors := parseVectorsFromFile("./vectors.txt", 10000)
-	k := 50
 
 	g := &graph{}
 
 	fmt.Printf("building")
+	// TODO: don't use actual vertex structure here, it's just a helper and we don't need the lock
 	for i, vector := range vectors {
 		vectors[i].index = int64(i)
 		err := storeToFile(int64(i), vector.internalvector)
@@ -123,20 +163,45 @@ func main() {
 
 	initMagicMappedFile()
 
+	// start := time.Now()
+	// TODO: don't use actual vertex structure here, it's just a helper and we don't need the lock
+
+	jobs := make(chan job)
+	numWorkers := runtime.GOMAXPROCS(0)
+	for i := 0; i < numWorkers; i++ {
+		fmt.Printf("starting worker %d\n", i)
+		go worker(g, i, jobs)
+	}
+
 	start := time.Now()
 	for i, vector := range vectors {
-		g.insert(&vertex{object: vector.object, index: vector.index}, k)
+		jobs <- job{object: vector.object, index: vector.index}
 
-		if i%50 == 0 {
-			fmt.Printf("last 50 took %s\n", time.Since(start))
+		if i%100 == 0 {
+			// technically we're measuring the time between jobs we start, not jobs
+			// we complete. However, since we only start a new job once an old one
+			// has completed, this should be about the same after the first few jobs
+			fmt.Printf("last 100 took %s\n", time.Since(start))
 			start = time.Now()
 		}
 	}
 
 	printTimes()
 
+	// let remaining workers finish and everything calm down
+	time.Sleep(500 * time.Millisecond)
+
 	resetTimes()
-	res := g.knnSearch(&vertex{index: 17}, 1, 15)
+
+	var indexForCar int64
+	for _, vec := range vectors {
+		if vec.object == "car" {
+			indexForCar = vec.index
+			break
+		}
+	}
+
+	res := g.knnSearch(&vertex{index: indexForCar}, 1, 15)
 	// entry := g.vertices[rand.Intn(len(g.vertices))]
 	// res := search(car, entry)
 	printTimes()
@@ -204,7 +269,10 @@ func (g *graph) knnSearch(queryObj *vertex, maximumSearches int, k int) []vertex
 	}
 
 	for i := 0; i < maximumSearches; i++ {
+		g.RLock()
 		entry := g.vertices[rand.Intn(len(g.vertices))]
+		g.RUnlock()
+
 		candidates.insert(entry, cosineDist(getVector(queryObj), getVector(entry)))
 
 		hops := 0

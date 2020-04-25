@@ -36,20 +36,16 @@ func initMagicMappedFile() {
 }
 
 func storeToFile(index int64, vector []float32) error {
-
-	before := time.Now()
 	f, err := os.OpenFile("./data/vectors", os.O_RDWR, 0644)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 	f.Seek(index*vectorDimensions*vectorSize, 0)
-	n, err := f.Write(vectorToBytes(vector))
+	_, err = f.Write(vectorToBytes(vector))
 	if err != nil {
 		return err
 	}
-
-	fmt.Printf("%d - %d bytes written in %s\n", index, n, time.Since(before))
 
 	return nil
 }
