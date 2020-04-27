@@ -106,7 +106,7 @@ func (g *graph) insert(vertexToInsert *vertex, k int) {
 		return
 	}
 
-	neighbors := g.knnSearch(vertexToInsert, 1, k)
+	neighbors := g.knnSearch(vertexToInsert, 1, k, false)
 	for _, neighbor := range neighbors {
 		neighbor.vertex.Lock()
 		neighbor.vertex.edges = append(neighbor.vertex.edges, vertexToInsert)
@@ -131,7 +131,7 @@ func (g *graph) print() {
 	}
 }
 
-var k = 50
+var k = 36
 
 type job struct {
 	index  int64
@@ -249,7 +249,7 @@ type vertexWithDistance struct {
 	distance float32
 }
 
-func (g *graph) knnSearch(queryObj *vertex, maximumSearches int, k int) []vertexWithDistance {
+func (g *graph) knnSearch(queryObj *vertex, maximumSearches int, k int, filter bool) []vertexWithDistance {
 	var (
 		tempRes     = &binarySearchTree{}
 		candidates  = &binarySearchTree{}
@@ -303,6 +303,15 @@ func (g *graph) knnSearch(queryObj *vertex, maximumSearches int, k int) []vertex
 		} // end for
 
 		for _, elem := range tempRes.flattenInOrder() {
+			// being attempt to filter
+			if filter {
+				if elem.data.object[0] != "a"[0] {
+					continue
+				}
+			}
+
+			// end filter
+
 			result.insert(elem.data, elem.dist)
 		}
 	}

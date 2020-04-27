@@ -22,7 +22,8 @@ func (h *handlers) getObjects(w http.ResponseWriter, r *http.Request) {
 	name := qv.Get("name")
 	indexPos := h.getIndex(name)
 	before := time.Now()
-	res := h.graph.knnSearch(&vertex{index: indexPos}, 1, 15)
+	filter := qv.Get("filter") != ""
+	res := h.graph.knnSearch(&vertex{index: indexPos}, 1, 10, filter)
 	took := time.Since(before)
 
 	results := make([]result, len(res))
