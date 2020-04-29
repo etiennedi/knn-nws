@@ -6,9 +6,12 @@ import (
 	"math"
 	"math/rand"
 	"net/http"
+	"os"
 	"runtime"
 	"sync"
 	"time"
+
+	"github.com/boltdb/bolt"
 )
 
 var (
@@ -56,7 +59,7 @@ func (v *vertex) vector() []float32 {
 	v.RLock()
 	index := v.index
 	v.RUnlock()
-	vec, err := readVectorFromFile(index)
+	vec, err := readVectorFromBolt(index)
 	if err != nil {
 		panic(err)
 	}
@@ -144,27 +147,70 @@ func worker(graph *graph, id int, jobs chan job) {
 	}
 }
 
+var db *bolt.DB
+
+func initBolt() {
+	boltdb, err := bolt.Open("./data/bolt.db", 0600, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	db = boltdb
+
+	err = db.Update(func(tx *bolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists([]byte("Vectors"))
+		if err != nil {
+			return fmt.Errorf("create bucket: %s", err)
+		}
+		return nil
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+var flagBenchmarkElastic bool
+
+func parseFlags() {
+	flags := os.Args[1:]
+	for _, flag := range flags {
+		if flag == "benchmark-elastic" {
+			fmt.Println("benchmarking against elasticsearch fast-vector score plugin")
+			flagBenchmarkElastic = true
+		}
+	}
+}
+
 func main() {
+	parseFlags()
+	initBolt()
+	defer db.Close()
+
 	rand.Seed(time.Now().UnixNano())
 	vectors := parseVectorsFromFile("./vectors.txt", 10000)
 
 	g := &graph{}
 
-	fmt.Printf("building")
+	fmt.Printf("storing vectors to disk")
 	// TODO: don't use actual vertex structure here, it's just a helper and we don't need the lock
 	for i, vector := range vectors {
 		vectors[i].index = int64(i)
-		err := storeToFile(int64(i), vector.internalvector)
+		// err := storeToFile(int64(i), vector.internalvector)
+		err := storeToBolt(int64(i), vector.internalvector)
 		if err != nil {
 			log.Fatal(err)
 		}
+
+		fmt.Printf(".")
 	}
 
-	initMagicMappedFile()
+	printTimes()
+
+	// initMagicMappedFile()
 
 	// start := time.Now()
 	// TODO: don't use actual vertex structure here, it's just a helper and we don't need the lock
 
+	fmt.Printf("building index")
 	jobs := make(chan job)
 	numWorkers := runtime.GOMAXPROCS(0)
 	for i := 0; i < numWorkers; i++ {

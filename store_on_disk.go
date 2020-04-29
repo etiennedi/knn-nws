@@ -8,6 +8,8 @@ import (
 	"os"
 	"syscall"
 	"time"
+
+	"github.com/boltdb/bolt"
 )
 
 const vectorDimensions = 600
@@ -50,6 +52,19 @@ func storeToFile(index int64, vector []float32) error {
 	return nil
 }
 
+func storeToBolt(index int64, vector []float32) error {
+	err := db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("Vectors"))
+		err := b.Put([]byte(fmt.Sprintf("%d", index)), vectorToBytes(vector))
+		return err
+	})
+
+	if err != nil {
+		return fmt.Errorf("store to bolt: %v", err)
+	}
+	return nil
+}
+
 func vectorToBytes(in []float32) []byte {
 
 	bytes := make([]byte, len(in)*4)
@@ -76,6 +91,19 @@ func vectorFromBytes(in []byte) ([]float32, error) {
 	}
 
 	return out, nil
+}
+
+func readVectorFromBolt(i int64) ([]float32, error) {
+	var out []float32
+	var err error
+	db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("Vectors"))
+		v := b.Get([]byte(fmt.Sprintf("%d", i)))
+		out, err = vectorFromBytes(v)
+		return nil
+	})
+
+	return out, err
 }
 
 func readVectorFromFile(i int64) ([]float32, error) {
