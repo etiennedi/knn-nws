@@ -186,11 +186,11 @@ func main() {
 	defer db.Close()
 
 	rand.Seed(time.Now().UnixNano())
-	vectors := parseVectorsFromFile("./vectors.txt", 10000)
+	vectors := parseVectorsFromFile("./vectors.txt", 4000)
 
 	g := &graph{}
 
-	fmt.Printf("storing vectors to disk")
+	fmt.Printf("storing vectors to disk (bolt)")
 	// TODO: don't use actual vertex structure here, it's just a helper and we don't need the lock
 	for i, vector := range vectors {
 		vectors[i].index = int64(i)
@@ -203,7 +203,26 @@ func main() {
 		fmt.Printf(".")
 	}
 
-	printTimes()
+	if flagBenchmarkElastic {
+		err := setMappings()
+		if err != nil {
+			log.Fatal(err)
+		}
+		resetTimes()
+		fmt.Printf("storing vectors in elasticsearch")
+		// TODO: don't use actual vertex structure here, it's just a helper and we don't need the lock
+		for i, vector := range vectors {
+			vectors[i].index = int64(i)
+			// err := storeToFile(int64(i), vector.internalvector)
+			err := storeToES(i, vector.object, vector.internalvector)
+			if err != nil {
+				fmt.Printf("err: %s\n", err)
+			}
+
+			fmt.Printf(".")
+		}
+		printTimes()
+	}
 
 	// initMagicMappedFile()
 
