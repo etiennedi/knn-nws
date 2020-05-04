@@ -181,53 +181,41 @@ func parseFlags() {
 }
 
 func main() {
+	limit := 200
+
 	parseFlags()
 	initBolt()
 	defer db.Close()
 
 	rand.Seed(time.Now().UnixNano())
-	vectors := parseVectorsFromFile("./vectors.txt", 4000)
-
-	g := &graph{}
-
-	fmt.Printf("storing vectors to disk (bolt)")
-	// TODO: don't use actual vertex structure here, it's just a helper and we don't need the lock
-	for i, vector := range vectors {
-		vectors[i].index = int64(i)
-		// err := storeToFile(int64(i), vector.internalvector)
-		err := storeToBolt(int64(i), vector.internalvector)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		fmt.Printf(".")
-	}
-
 	if flagBenchmarkElastic {
 		err := setMappings()
 		if err != nil {
 			log.Fatal(err)
 		}
-		resetTimes()
-		fmt.Printf("storing vectors in elasticsearch")
-		// TODO: don't use actual vertex structure here, it's just a helper and we don't need the lock
-		for i, vector := range vectors {
-			vectors[i].index = int64(i)
-			// err := storeToFile(int64(i), vector.internalvector)
-			err := storeToES(i, vector.object, vector.internalvector)
-			if err != nil {
-				fmt.Printf("err: %s\n", err)
-			}
-
-			fmt.Printf(".")
-		}
-		printTimes()
 	}
 
-	// initMagicMappedFile()
+	insertFn := func(i int, word string, vector []float32) {
+		err := storeToBolt(int64(i), vector)
+		if err != nil {
+			log.Printf("bolt error: %v\n", err)
+		}
 
-	// start := time.Now()
-	// TODO: don't use actual vertex structure here, it's just a helper and we don't need the lock
+		if flagBenchmarkElastic {
+			err := storeToES(i, word, vector)
+			if err != nil {
+				fmt.Printf("es error: %s\n", err)
+			}
+		}
+
+		if i%100 == 0 {
+			fmt.Printf(".")
+		}
+
+	}
+	wordToIndex := parseVectorsFromFile("./vectors-shuf.txt", limit, insertFn)
+
+	g := &graph{}
 
 	fmt.Printf("building index")
 	jobs := make(chan job)
@@ -238,8 +226,8 @@ func main() {
 	}
 
 	start := time.Now()
-	for i, vector := range vectors {
-		jobs <- job{object: vector.object, index: vector.index}
+	indexFn := func(i int, word string, vector []float32) {
+		jobs <- job{object: word, index: int64(i)}
 
 		if i%100 == 0 {
 			// technically we're measuring the time between jobs we start, not jobs
@@ -248,21 +236,16 @@ func main() {
 			fmt.Printf("last 100 took %s\n", time.Since(start))
 			start = time.Now()
 		}
-	}
 
-	printTimes()
+	}
+	parseVectorsFromFile("./vectors-shuf.txt", limit, indexFn)
 
 	// let remaining workers finish and everything calm down
 
 	resetTimes()
 
 	getIndex := func(name string) int64 {
-		for _, vec := range vectors {
-			if vec.object == name {
-				return vec.index
-			}
-		}
-		return -1
+		return int64(wordToIndex[name])
 	}
 
 	handler := newHandlers(g, getIndex)

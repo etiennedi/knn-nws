@@ -71,6 +71,9 @@ func (h *handlers) benchmark(w http.ResponseWriter, r *http.Request, indexPos in
 {
   "query": {
     "function_score": {
+		  "query": {
+				"match_all": {}
+			},
       "boost_mode": "replace",
       "script_score": {
         "script": {

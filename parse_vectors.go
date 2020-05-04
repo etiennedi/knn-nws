@@ -2,13 +2,14 @@ package main
 
 import (
 	"bufio"
-	"math/rand"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
 )
 
-func parseVectorsFromFile(fileName string, limit int) []vertex {
+func parseVectorsFromFile(fileName string, limit int, doFn func(i int, word string, vec []float32)) map[string]int {
+	fmt.Println("iterating over input files")
 	resetTimes()
 	file, err := os.Open(fileName)
 	defer file.Close()
@@ -16,7 +17,7 @@ func parseVectorsFromFile(fileName string, limit int) []vertex {
 		panic(err)
 	}
 
-	out := make([]vertex, limit)
+	out := make(map[string]int)
 	scanner := bufio.NewScanner(file)
 	i := 0
 
@@ -26,15 +27,19 @@ func parseVectorsFromFile(fileName string, limit int) []vertex {
 		}
 
 		row := scanner.Text()
-		out[i] = parseVectorRow(row)
+		word, vector := parseVectorRow(row)
+		out[word] = i
+
+		doFn(i, word, vector)
+
 		i++
 	}
 	printTimes()
 
-	return shuffle(out)
+	return out
 }
 
-func parseVectorRow(row string) vertex {
+func parseVectorRow(row string) (string, []float32) {
 	parts := strings.Split(row, " ")
 	word := parts[0]
 	vectorDimensions := parts[1:]
@@ -49,15 +54,5 @@ func parseVectorRow(row string) vertex {
 		vector[i] = float32(parsed)
 	}
 
-	return vertex{object: word, internalvector: vector}
-}
-
-func shuffle(in []vertex) []vertex {
-	out := make([]vertex, len(in))
-	perm := rand.Perm(len(in))
-	for i, v := range perm {
-		out[v] = in[i]
-	}
-
-	return out
+	return word, vector
 }
