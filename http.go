@@ -13,12 +13,12 @@ import (
 )
 
 type handlers struct {
-	graph    *graph
+	graph    *nsw
 	getIndex getIndexFn
 }
 type getIndexFn func(name string) int64
 
-func newHandlers(g *graph, getIndex getIndexFn) *handlers {
+func newHandlers(g *nsw, getIndex getIndexFn) *handlers {
 	return &handlers{graph: g, getIndex: getIndex}
 }
 
