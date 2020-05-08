@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"math"
 	"math/rand"
@@ -81,9 +83,15 @@ type job struct {
 	object string
 }
 
-func worker(graph *nsw, id int, jobs chan job) {
+func nswWorker(graph *nsw, workerid int, jobs chan job) {
 	for job := range jobs {
 		graph.insert(&vertex{object: job.object, index: job.index}, k)
+	}
+}
+
+func hnswWorker(graph *hnsw, workerid int, jobs chan job) {
+	for job := range jobs {
+		graph.insert(&hnswVertex{id: int(job.index)})
 	}
 }
 
@@ -121,11 +129,95 @@ func parseFlags() {
 }
 
 func main() {
-	limit := 200
-
-	parseFlags()
+	startup := time.Now()
 	initBolt()
 	defer db.Close()
+
+	var g = &hnsw{}
+	var wordToIndex map[string]int
+
+	if fileExists("./data/hnsw.index") {
+		// read hnsw index
+		f, err := os.Open("./data/hnsw.index")
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+
+		bytes, err := ioutil.ReadAll(f)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+
+		err = UnmarshalGzip(bytes, g)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+
+		g.vectorForID = func(i int) []float32 {
+			vec, err := readVectorFromBolt(int64(i))
+			if err != nil {
+				log.Fatalf(err.Error())
+			}
+			return vec
+		}
+
+		f.Close()
+
+		// read wordToIndex
+		f, err = os.Open("./data/object_to_index.json")
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+
+		bytes, err = ioutil.ReadAll(f)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+
+		err = json.Unmarshal(bytes, &wordToIndex)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+
+	} else {
+		// build new
+		g, wordToIndex = buildNewIndex()
+
+	}
+
+	resetTimes()
+
+	getIndex := func(name string) int64 {
+		return int64(wordToIndex[name])
+	}
+
+	getData := func(index int64) string {
+		// TODO: this can obviously be improved
+
+		for key, value := range wordToIndex {
+			if value == int(index) {
+				return key
+			}
+		}
+
+		return ""
+	}
+
+	handler := newHandlers(g, getIndex, getData)
+	http.Handle("/objects", http.HandlerFunc(handler.getObjects))
+	fmt.Printf("Startup took %s, Listening on :8080\n", time.Since(startup))
+
+	err := http.ListenAndServe(":8080", nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+}
+
+func buildNewIndex() (*hnsw, map[string]int) {
+	limit := 10000
+
+	parseFlags()
 
 	rand.Seed(time.Now().UnixNano())
 	if flagBenchmarkElastic {
@@ -155,14 +247,22 @@ func main() {
 	}
 	wordToIndex := parseVectorsFromFile("./vectors-shuf.txt", limit, insertFn)
 
-	g := &nsw{}
+	// g := &nsw{}
+	g := newHnsw(30, 60, func(i int) []float32 {
+		vec, err := readVectorFromBolt(int64(i))
+		if err != nil {
+			log.Fatalf(err.Error())
+		}
+		return vec
+	})
 
 	fmt.Printf("building index")
 	jobs := make(chan job)
 	numWorkers := runtime.GOMAXPROCS(0)
 	for i := 0; i < numWorkers; i++ {
 		fmt.Printf("starting worker %d\n", i)
-		go worker(g, i, jobs)
+		// go nswWorker(g, i, jobs)
+		go hnswWorker(g, i, jobs)
 	}
 
 	start := time.Now()
@@ -178,23 +278,47 @@ func main() {
 		}
 
 	}
-	parseVectorsFromFile("./vectors-shuf.txt", limit, indexFn)
+	parseVectorsFromFile("./vectors.txt", limit, indexFn)
 
 	// let remaining workers finish and everything calm down
 
-	resetTimes()
+	time.Sleep(3 * time.Second)
 
-	getIndex := func(name string) int64 {
-		return int64(wordToIndex[name])
-	}
-
-	handler := newHandlers(g, getIndex)
-	http.Handle("/objects", http.HandlerFunc(handler.getObjects))
-	err := http.ListenAndServe(":8080", nil)
+	bytes, err := g.MarshalGzip()
 	if err != nil {
-		log.Fatal(err)
+		log.Printf(err.Error())
 	}
 
+	f, err := os.Create("./data/hnsw.index")
+	if err != nil {
+		log.Printf(err.Error())
+	}
+
+	_, err = f.Write(bytes)
+	if err != nil {
+		log.Printf(err.Error())
+	}
+
+	f.Close()
+
+	bytes, err = json.Marshal(wordToIndex)
+	if err != nil {
+		log.Printf(err.Error())
+	}
+
+	f, err = os.Create("./data/object_to_index.json")
+	if err != nil {
+		log.Printf(err.Error())
+	}
+
+	_, err = f.Write(bytes)
+	if err != nil {
+		log.Printf(err.Error())
+	}
+
+	f.Close()
+
+	return g, wordToIndex
 }
 
 type vertexWithDistance struct {
@@ -232,4 +356,12 @@ func cosineDist(a, b []float32) float32 {
 	spentDistancing += time.Since(before)
 	// fmt.Printf("dist %f\n", sim)
 	return 1 - sim
+}
+
+func fileExists(filename string) bool {
+	info, err := os.Stat(filename)
+	if os.IsNotExist(err) {
+		return false
+	}
+	return !info.IsDir()
 }

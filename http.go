@@ -13,13 +13,15 @@ import (
 )
 
 type handlers struct {
-	graph    *nsw
+	graph    *hnsw
 	getIndex getIndexFn
+	getData  getDataFn
 }
 type getIndexFn func(name string) int64
+type getDataFn func(int64) string
 
-func newHandlers(g *nsw, getIndex getIndexFn) *handlers {
-	return &handlers{graph: g, getIndex: getIndex}
+func newHandlers(g *hnsw, getIndex getIndexFn, getData getDataFn) *handlers {
+	return &handlers{graph: g, getIndex: getIndex, getData: getData}
 }
 
 func (h *handlers) getObjects(w http.ResponseWriter, r *http.Request) {
@@ -35,20 +37,21 @@ func (h *handlers) getObjects(w http.ResponseWriter, r *http.Request) {
 
 	indexPos := h.getIndex(name)
 	before := time.Now()
-	filter := qv.Get("filter") != ""
+	// filter := qv.Get("filter") != ""
 	benchmark := qv.Get("benchmark") != ""
 	if benchmark {
 		h.benchmark(w, r, indexPos, size)
 		return
 	}
-	res := h.graph.knnSearch(&vertex{index: indexPos}, 1, size, filter)
+	res := h.graph.knnSearch(int(indexPos), size, 100)
 	took := time.Since(before)
 
 	results := make([]result, len(res))
 	for i, elem := range res {
+		object := h.getData(int64(elem))
 		results[i] = result{
-			Object:   elem.vertex.object,
-			Distance: elem.distance,
+			Object: object,
+			// Distance: elem.distance,
 		}
 	}
 
