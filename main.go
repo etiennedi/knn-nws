@@ -16,39 +16,6 @@ import (
 	"github.com/boltdb/bolt"
 )
 
-var (
-	startTime        time.Time
-	spentInserting   time.Duration
-	spentContains    time.Duration
-	spentFlattening  time.Duration
-	spentDeleting    time.Duration
-	spentDistancing  time.Duration
-	spentReadingDisk time.Duration
-)
-
-func resetTimes() {
-	spentInserting = 0
-	spentContains = 0
-	spentFlattening = 0
-	spentDeleting = 0
-	spentDistancing = 0
-	spentReadingDisk = 0
-	startTime = time.Now()
-}
-
-func printTimes() {
-	fmt.Printf(`
-inserting: %s
-contains: %s
-flattening: %s
-deleting: %s
-distancing: %s
-reading disk: %s
-total: %s
-`, spentInserting, spentContains, spentFlattening, spentDeleting,
-		spentDistancing, spentReadingDisk, time.Since(startTime))
-}
-
 type vertex struct {
 	object         string
 	internalvector []float32
@@ -117,6 +84,7 @@ func initBolt() {
 }
 
 var flagBenchmarkElastic bool
+var m *monitoring
 
 func parseFlags() {
 	flags := os.Args[1:]
@@ -130,6 +98,7 @@ func parseFlags() {
 
 func main() {
 	startup := time.Now()
+	m = newMonitoring()
 	initBolt()
 	defer db.Close()
 
@@ -185,8 +154,6 @@ func main() {
 
 	}
 
-	resetTimes()
-
 	getIndex := func(name string) int64 {
 		return int64(wordToIndex[name])
 	}
@@ -215,7 +182,9 @@ func main() {
 }
 
 func buildNewIndex() (*hnsw, map[string]int) {
-	limit := 10000
+	m.reset()
+
+	limit := 1000
 
 	parseFlags()
 
@@ -255,6 +224,9 @@ func buildNewIndex() (*hnsw, map[string]int) {
 		}
 		return vec
 	})
+
+	m.writeTimes(os.Stdout)
+	m.reset()
 
 	fmt.Printf("building index")
 	jobs := make(chan job)
@@ -318,6 +290,7 @@ func buildNewIndex() (*hnsw, map[string]int) {
 
 	f.Close()
 
+	m.writeTimes(os.Stdout)
 	return g, wordToIndex
 }
 
@@ -348,13 +321,12 @@ func cosineSim(a, b []float32) (float32, error) {
 
 func cosineDist(a, b []float32) float32 {
 	before := time.Now()
+	defer m.addDistancing(before)
 	sim, err := cosineSim(a, b)
 	if err != nil {
 		panic(err)
 	}
 
-	spentDistancing += time.Since(before)
-	// fmt.Printf("dist %f\n", sim)
 	return 1 - sim
 }
 

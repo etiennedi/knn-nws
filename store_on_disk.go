@@ -53,6 +53,9 @@ func storeToFile(index int64, vector []float32) error {
 }
 
 func storeToBolt(index int64, vector []float32) error {
+	before := time.Now()
+	defer m.addWritingDisk(before)
+
 	err := db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte("Vectors"))
 		err := b.Put([]byte(fmt.Sprintf("%d", index)), vectorToBytes(vector))
@@ -94,6 +97,9 @@ func vectorFromBytes(in []byte) ([]float32, error) {
 }
 
 func readVectorFromBolt(i int64) ([]float32, error) {
+	before := time.Now()
+	defer m.addReadingDisk(before)
+
 	var out []float32
 	var err error
 	db.View(func(tx *bolt.Tx) error {
@@ -108,9 +114,7 @@ func readVectorFromBolt(i int64) ([]float32, error) {
 
 func readVectorFromFile(i int64) ([]float32, error) {
 	before := time.Now()
-	defer func() {
-		spentReadingDisk += time.Since(before)
-	}()
+	defer m.addReadingDisk(before)
 
 	start := i * vectorDimensions * vectorSize
 	end := start + vectorDimensions*vectorSize

@@ -10,7 +10,6 @@ import (
 
 func parseVectorsFromFile(fileName string, limit int, doFn func(i int, word string, vec []float32)) map[string]int {
 	fmt.Println("iterating over input files")
-	resetTimes()
 	file, err := os.Open(fileName)
 	defer file.Close()
 	if err != nil {
@@ -34,7 +33,6 @@ func parseVectorsFromFile(fileName string, limit int, doFn func(i int, word stri
 
 		i++
 	}
-	printTimes()
 
 	return out
 }

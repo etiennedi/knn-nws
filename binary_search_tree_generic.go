@@ -11,6 +11,8 @@ type binarySearchTreeGeneric struct {
 
 func (t *binarySearchTreeGeneric) insert(index int, dist float32) {
 	before := time.Now()
+	defer m.addInserting(before)
+
 	if t.root == nil {
 		t.root = &binarySearchNodeGeneric{
 			index: index,
@@ -20,7 +22,6 @@ func (t *binarySearchTreeGeneric) insert(index int, dist float32) {
 	}
 
 	t.root.insert(index, dist)
-	spentInserting += time.Since(before)
 }
 
 func (t *binarySearchTreeGeneric) printInOrder() {
@@ -29,9 +30,7 @@ func (t *binarySearchTreeGeneric) printInOrder() {
 
 func (t *binarySearchTreeGeneric) contains(index int, dist float32) bool {
 	before := time.Now()
-	defer func() {
-		spentContains += time.Since(before)
-	}()
+	defer m.addContains(before)
 
 	if t.root == nil {
 		return false
@@ -41,18 +40,20 @@ func (t *binarySearchTreeGeneric) contains(index int, dist float32) bool {
 }
 
 func (t *binarySearchTreeGeneric) minimum() *binarySearchNodeGeneric {
+	before := time.Now()
+	defer m.addMinMax(before)
 	return t.root.minimum()
 }
 
 func (t *binarySearchTreeGeneric) maximum() *binarySearchNodeGeneric {
+	before := time.Now()
+	defer m.addMinMax(before)
 	return t.root.maximum()
 }
 
 func (t *binarySearchTreeGeneric) flattenInOrder() []*binarySearchNodeGeneric {
 	before := time.Now()
-	defer func() {
-		spentFlattening += time.Since(before)
-	}()
+	defer m.addFlattening(before)
 
 	if t.root == nil {
 		return nil
@@ -63,12 +64,12 @@ func (t *binarySearchTreeGeneric) flattenInOrder() []*binarySearchNodeGeneric {
 
 func (t *binarySearchTreeGeneric) delete(index int, dist float32) {
 	before := time.Now()
+	defer m.addDeleting(before)
 
 	fakeParent := &binarySearchNodeGeneric{right: t.root, index: -1, dist: -999999}
 
 	t.root.delete(index, dist, fakeParent)
 	t.root = fakeParent.right
-	spentDeleting += time.Since(before)
 }
 
 func (t *binarySearchTreeGeneric) len() int {

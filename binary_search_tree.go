@@ -11,6 +11,7 @@ type binarySearchTree struct {
 
 func (t *binarySearchTree) insert(data *vertex, dist float32) {
 	before := time.Now()
+	defer m.addInserting(before)
 	if t.root == nil {
 		t.root = &binarySearchNode{
 			data: data,
@@ -20,7 +21,6 @@ func (t *binarySearchTree) insert(data *vertex, dist float32) {
 	}
 
 	t.root.insert(data, dist)
-	spentInserting += time.Since(before)
 }
 
 func (t *binarySearchTree) printInOrder() {
@@ -29,9 +29,7 @@ func (t *binarySearchTree) printInOrder() {
 
 func (t *binarySearchTree) contains(data *vertex, dist float32) bool {
 	before := time.Now()
-	defer func() {
-		spentContains += time.Since(before)
-	}()
+	defer m.addContains(before)
 
 	if t.root == nil {
 		return false
@@ -46,9 +44,7 @@ func (t *binarySearchTree) minimum() *binarySearchNode {
 
 func (t *binarySearchTree) flattenInOrder() []*binarySearchNode {
 	before := time.Now()
-	defer func() {
-		spentFlattening += time.Since(before)
-	}()
+	defer m.addFlattening(before)
 
 	if t.root == nil {
 		return nil
@@ -59,12 +55,12 @@ func (t *binarySearchTree) flattenInOrder() []*binarySearchNode {
 
 func (t *binarySearchTree) delete(data *vertex, dist float32) {
 	before := time.Now()
+	defer m.addDeleting(before)
 
 	fakeParent := &binarySearchNode{right: t.root, data: &vertex{object: "fake node"}, dist: -999999}
 
 	t.root.delete(data, dist, fakeParent)
 	t.root = fakeParent.right
-	spentDeleting += time.Since(before)
 }
 
 type binarySearchNode struct {

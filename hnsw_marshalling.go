@@ -22,6 +22,10 @@ func (h *hnsw) MarshalGzip() ([]byte, error) {
 
 	ec.add(h.writeAsInt64(z, len(h.nodes)))
 	for _, node := range h.nodes {
+		if node == nil {
+			// in case we grew further than what we actually need
+			continue
+		}
 		ec.add(h.writeAsInt64(z, node.id))
 		ec.add(h.writeAsInt64(z, node.level))
 		connectionLevels := len(node.connections)
