@@ -9,15 +9,19 @@ import (
 
 type monitoring struct {
 	sync.Mutex
-	startTime        time.Time
-	spentInserting   time.Duration
-	spentContains    time.Duration
-	spentFlattening  time.Duration
-	spentDeleting    time.Duration
-	spentDistancing  time.Duration
-	spentReadingDisk time.Duration
-	spentWritingDisk time.Duration
-	spentMinMax      time.Duration
+	startTime             time.Time
+	spentInserting        time.Duration
+	spentContains         time.Duration
+	spentFlattening       time.Duration
+	spentDeleting         time.Duration
+	spentDistancing       time.Duration
+	spentReadingDisk      time.Duration
+	spentWritingDisk      time.Duration
+	spentMinMax           time.Duration
+	spentCachePurging     time.Duration
+	spentCacheReadLocking time.Duration
+	spentCacheLocking     time.Duration
+	spentCacheItemLocking time.Duration
 }
 
 func newMonitoring() *monitoring {
@@ -34,6 +38,10 @@ func (m *monitoring) reset() {
 	m.spentReadingDisk = 0
 	m.spentWritingDisk = 0
 	m.spentMinMax = 0
+	m.spentCachePurging = 0
+	m.spentCacheReadLocking = 0
+	m.spentCacheLocking = 0
+	m.spentCacheItemLocking = 0
 }
 
 func (m *monitoring) writeTimes(w io.Writer) {
@@ -49,9 +57,17 @@ distancing: %s
 minMaxing: %s
 reading disk: %s
 writing disk: %s
+
+cache purging: %s
+cache read locking: %s
+cache item locking: %s
+cache locking: %s
+
 total: %s
 `, m.spentInserting, m.spentContains, m.spentFlattening, m.spentDeleting,
-		m.spentDistancing, m.spentMinMax, m.spentReadingDisk, m.spentWritingDisk, time.Since(m.startTime))
+		m.spentDistancing, m.spentMinMax, m.spentReadingDisk, m.spentWritingDisk,
+		m.spentCachePurging, m.spentCacheReadLocking, m.spentCacheItemLocking, m.spentCacheLocking,
+		time.Since(m.startTime))
 }
 
 func (m *monitoring) addInserting(t time.Time) {
@@ -100,4 +116,28 @@ func (m *monitoring) addWritingDisk(t time.Time) {
 	m.Lock()
 	defer m.Unlock()
 	m.spentWritingDisk += time.Since(t)
+}
+
+func (m *monitoring) addCachePurging(t time.Time) {
+	m.Lock()
+	defer m.Unlock()
+	m.spentCachePurging += time.Since(t)
+}
+
+func (m *monitoring) addCacheLocking(t time.Time) {
+	m.Lock()
+	defer m.Unlock()
+	m.spentCacheLocking += time.Since(t)
+}
+
+func (m *monitoring) addCacheReadLocking(t time.Time) {
+	m.Lock()
+	defer m.Unlock()
+	m.spentCacheReadLocking += time.Since(t)
+}
+
+func (m *monitoring) addCacheItemLocking(t time.Time) {
+	m.Lock()
+	defer m.Unlock()
+	m.spentCacheItemLocking += time.Since(t)
 }

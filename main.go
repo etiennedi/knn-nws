@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"sort"
 	"sync"
 	"time"
 
@@ -96,6 +97,98 @@ func parseFlags() {
 	}
 }
 
+type primitiveVectorCache struct {
+	sync.RWMutex
+	cache      map[int]*cacheItem
+	targetSize int
+	purgeSize  int
+}
+
+type cacheItem struct {
+	item     int
+	vector   []float32
+	count    int
+	lastUsed time.Time
+	sync.Mutex
+}
+
+var cache = &primitiveVectorCache{
+	cache:      map[int]*cacheItem{},
+	targetSize: 10000,
+	// purgeSize:  5000,
+}
+
+func (c *primitiveVectorCache) get(i int) []float32 {
+
+	before := time.Now()
+	c.RLock()
+	m.addCacheReadLocking(before)
+	item, ok := c.cache[i]
+	c.RUnlock()
+
+	if !ok {
+		vec, err := readVectorFromBolt(int64(i))
+		if err != nil {
+			fmt.Printf("bolt read error: %v\n", err)
+		}
+
+		before := time.Now()
+		c.Lock()
+		m.addCacheLocking(before)
+		if len(c.cache) >= c.targetSize {
+			c.purgeOldest()
+		}
+		c.cache[i] = &cacheItem{vector: vec, item: i, count: 1, lastUsed: time.Now()}
+		c.Unlock()
+		return vec
+	}
+
+	// before = time.Now()
+	// item.Lock()
+	// m.addCacheItemLocking(before)
+	// defer item.Unlock()
+
+	// item.count += 1
+	// item.lastUsed = time.Now()
+	return item.vector
+}
+
+func (c *primitiveVectorCache) purgeOldest() {
+	fmt.Printf("\n\npurging cache!\n\n")
+	before := time.Now()
+	defer m.addCachePurging(before)
+	c.cache = map[int]*cacheItem{}
+
+	// list := make([]*cacheItem, len(c.cache))
+	// i := 0
+	// for _, item := range c.cache {
+	// 	list[i] = item
+	// 	i++
+	// }
+
+	// sort.Slice(list, func(a, b int) bool { return list[a].lastUsed.Before(list[b].lastUsed) })
+	// for i := 0; i < c.purgeSize; i++ {
+	// 	delete(c.cache, list[i].item)
+	// }
+
+}
+
+func (c *primitiveVectorCache) printCounts() {
+	list := make([]*cacheItem, len(c.cache))
+	i := 0
+	for _, item := range c.cache {
+		list[i] = item
+		i++
+	}
+
+	sort.Slice(list, func(a, b int) bool { return list[a].count > list[b].count })
+
+	now := time.Now()
+	for _, item := range list {
+		fmt.Printf("item %d - count %d - last used %s\n", item.item, item.count, time.Since(now))
+	}
+}
+
 func main() {
 	startup := time.Now()
 	m = newMonitoring()
@@ -127,6 +220,7 @@ func main() {
 			if err != nil {
 				log.Fatalf(err.Error())
 			}
+
 			return vec
 		}
 
@@ -184,7 +278,7 @@ func main() {
 func buildNewIndex() (*hnsw, map[string]int) {
 	m.reset()
 
-	limit := 1000
+	limit := 10000
 
 	parseFlags()
 
@@ -218,11 +312,13 @@ func buildNewIndex() (*hnsw, map[string]int) {
 
 	// g := &nsw{}
 	g := newHnsw(30, 60, func(i int) []float32 {
-		vec, err := readVectorFromBolt(int64(i))
-		if err != nil {
-			log.Fatalf(err.Error())
-		}
-		return vec
+		// vec, err := readVectorFromBolt(int64(i))
+		// if err != nil {
+		// 	log.Fatalf(err.Error())
+		// }
+		// return vec
+
+		return cache.get(i)
 	})
 
 	m.writeTimes(os.Stdout)
