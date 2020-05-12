@@ -73,6 +73,7 @@ cache item locking: %s
 cache locking: %s
 
 building read locking: %s
+building read locking beginning: %s
 building node locking: %s
 building locking: %s
 
@@ -80,7 +81,7 @@ total: %s
 `, m.spentInserting, m.spentContains, m.spentFlattening, m.spentDeleting,
 		m.spentDistancing, m.spentMinMax, m.spentReadingDisk, m.spentWritingDisk,
 		m.spentCachePurging, m.spentCacheReadLocking, m.spentCacheItemLocking, m.spentCacheLocking,
-		m.spentBuildingReadLocking, m.spentBuildingItemLocking, m.spentBuildingLocking,
+		m.spentBuildingReadLocking, m.spentBuildingReadLockingBeginning, m.spentBuildingItemLocking, m.spentBuildingLocking,
 		time.Since(m.startTime))
 }
 
