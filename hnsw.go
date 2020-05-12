@@ -4,6 +4,7 @@ import (
 	"math"
 	"math/rand"
 	"sync"
+	"time"
 )
 
 // Layer refers to the actual slice of graph
@@ -53,15 +54,16 @@ func newHnsw(maximumConnections int, efConstruction int, vectorForID func(id int
 		maximumConnectionsLayerZero: 2 * maximumConnections,                    // inspired by original paper and other implementations
 		levelNormalizer:             1 / math.Log(float64(maximumConnections)), // inspired by c++ implementation
 		efConstruction:              efConstruction,
-		nodes:                       make([]*hnswVertex, 0, 10000), // TODO: grow variably rather than fixed length
+		nodes:                       make([]*hnswVertex, 0, 100000), // TODO: grow variably rather than fixed length
 		vectorForID:                 vectorForID,
 	}
 
 }
 
 func (h *hnsw) insert(node *hnswVertex) {
-
+	before := time.Now()
 	h.RLock()
+	m.addBuildingReadLockingBeginning(before)
 	total := len(h.nodes)
 	h.RUnlock()
 
@@ -70,7 +72,7 @@ func (h *hnsw) insert(node *hnswVertex) {
 		h.entryPointID = node.id
 		node.connections = map[int][]uint32{}
 		node.level = 0
-		h.nodes = make([]*hnswVertex, 10000)
+		h.nodes = make([]*hnswVertex, 100000)
 		h.nodes[node.id] = node
 		h.currentMaximumLayer = 0
 		h.Unlock()
@@ -86,12 +88,16 @@ func (h *hnsw) insert(node *hnswVertex) {
 
 	targetLevel := int(math.Floor(-math.Log(rand.Float64() * h.levelNormalizer)))
 
+	before = time.Now()
 	node.Lock()
+	m.addBuildingItemLocking(before)
 	node.level = targetLevel
 	node.connections = map[int][]uint32{}
 	node.Unlock()
 
+	before = time.Now()
 	h.Lock()
+	m.addBuildingLocking(before)
 	nodeId := node.id
 	h.nodes[nodeId] = node
 	h.Unlock()
@@ -115,14 +121,18 @@ func (h *hnsw) insert(node *hnswVertex) {
 		neighbors := h.selectNeighborsSimple(nodeId, *results, h.maximumConnections)
 
 		for _, neighborID := range neighbors {
+			before := time.Now()
 			h.RLock()
+			m.addBuildingReadLocking(before)
 			neighbor := h.nodes[neighborID]
 			h.RUnlock()
 
 			neighbor.linkAtLevel(level, uint32(nodeId))
 			node.linkAtLevel(level, uint32(neighbor.id))
 
+			before = time.Now()
 			neighbor.RLock()
+			m.addBuildingItemLocking(before)
 			currentConnections := neighbor.connections[level]
 			neighbor.RUnlock()
 
@@ -139,14 +149,18 @@ func (h *hnsw) insert(node *hnswVertex) {
 			// TODO: support both neighbor selection algos
 			updatedConnections := h.selectNeighborsSimpleFromId(nodeId, currentConnections, maximumConnections)
 
+			before = time.Now()
 			neighbor.Lock()
+			m.addBuildingItemLocking(before)
 			neighbor.connections[level] = updatedConnections
 			neighbor.Unlock()
 		}
 	}
 
 	if targetLevel > h.currentMaximumLayer {
+		before = time.Now()
 		h.Lock()
+		m.addBuildingLocking(before)
 		h.entryPointID = nodeId
 		h.currentMaximumLayer = targetLevel
 		h.Unlock()
@@ -177,11 +191,15 @@ func (h *hnsw) searchLayer(queryNode *hnswVertex, entrypoints binarySearchTreeGe
 			break
 		}
 
+		before := time.Now()
 		h.RLock()
+		m.addBuildingReadLocking(before)
 		candidateNode := h.nodes[candidate.index]
 		h.RUnlock()
 
+		before = time.Now()
 		candidateNode.RLock()
+		m.addBuildingItemLocking(before)
 		connections := candidateNode.connections[level]
 		candidateNode.RUnlock()
 
