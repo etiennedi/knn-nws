@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"os"
 	"runtime"
-	"sort"
 	"sync"
 	"time"
 
@@ -97,11 +96,13 @@ func parseFlags() {
 	}
 }
 
-type primitiveVectorCache struct {
+type shardedVectorCache struct {
 	sync.RWMutex
-	cache      map[int]*cacheItem
+	caches     []map[int]*cacheItem
+	shardLocks []*sync.RWMutex
 	targetSize int
 	purgeSize  int
+	shards     int
 }
 
 type cacheItem struct {
@@ -112,19 +113,41 @@ type cacheItem struct {
 	sync.Mutex
 }
 
-var cache = &primitiveVectorCache{
-	cache:      map[int]*cacheItem{},
-	targetSize: 10000,
-	// purgeSize:  5000,
+var cache = newCache()
+
+func newCache() *shardedVectorCache {
+	shards := 200
+	shardSize := 20
+
+	cache := &shardedVectorCache{
+		caches:     make([]map[int]*cacheItem, shards),
+		shardLocks: make([]*sync.RWMutex, shards),
+		targetSize: shardSize,
+		// purgeSize:  5000,
+		shards: shards,
+	}
+
+	for i := range cache.shardLocks {
+		cache.caches[i] = map[int]*cacheItem{}
+		cache.shardLocks[i] = &sync.RWMutex{}
+	}
+
+	return cache
 }
 
-func (c *primitiveVectorCache) get(i int) []float32 {
+func (c *shardedVectorCache) shard(item int) int {
+	return item % c.shards
+}
+
+func (c *shardedVectorCache) get(i int) []float32 {
+
+	shard := c.shard(i)
 
 	before := time.Now()
-	c.RLock()
+	c.shardLocks[shard].RLock()
 	m.addCacheReadLocking(before)
-	item, ok := c.cache[i]
-	c.RUnlock()
+	item, ok := c.caches[shard][i]
+	c.shardLocks[shard].RUnlock()
 
 	if !ok {
 		vec, err := readVectorFromBolt(int64(i))
@@ -133,13 +156,13 @@ func (c *primitiveVectorCache) get(i int) []float32 {
 		}
 
 		before := time.Now()
-		c.Lock()
+		c.shardLocks[shard].Lock()
 		m.addCacheLocking(before)
-		if len(c.cache) >= c.targetSize {
-			c.purgeOldest()
+		if len(c.caches[shard]) >= c.targetSize {
+			c.purge(shard)
 		}
-		c.cache[i] = &cacheItem{vector: vec, item: i, count: 1, lastUsed: time.Now()}
-		c.Unlock()
+		c.caches[shard][i] = &cacheItem{vector: vec, item: i, count: 1, lastUsed: time.Now()}
+		c.shardLocks[shard].Unlock()
 		return vec
 	}
 
@@ -153,11 +176,11 @@ func (c *primitiveVectorCache) get(i int) []float32 {
 	return item.vector
 }
 
-func (c *primitiveVectorCache) purgeOldest() {
-	fmt.Printf("\n\npurging cache!\n\n")
+func (c *shardedVectorCache) purge(shard int) {
+	// fmt.Printf("purging cache for shard %d!\n", shard)
 	before := time.Now()
 	defer m.addCachePurging(before)
-	c.cache = map[int]*cacheItem{}
+	c.caches[shard] = map[int]*cacheItem{}
 
 	// list := make([]*cacheItem, len(c.cache))
 	// i := 0
@@ -173,21 +196,21 @@ func (c *primitiveVectorCache) purgeOldest() {
 
 }
 
-func (c *primitiveVectorCache) printCounts() {
-	list := make([]*cacheItem, len(c.cache))
-	i := 0
-	for _, item := range c.cache {
-		list[i] = item
-		i++
-	}
+// func (c *shardedVectorCache) printCounts() {
+// 	list := make([]*cacheItem, len(c.cache))
+// 	i := 0
+// 	for _, item := range c.cache {
+// 		list[i] = item
+// 		i++
+// 	}
 
-	sort.Slice(list, func(a, b int) bool { return list[a].count > list[b].count })
+// 	sort.Slice(list, func(a, b int) bool { return list[a].count > list[b].count })
 
-	now := time.Now()
-	for _, item := range list {
-		fmt.Printf("item %d - count %d - last used %s\n", item.item, item.count, time.Since(now))
-	}
-}
+// 	now := time.Now()
+// 	for _, item := range list {
+// 		fmt.Printf("item %d - count %d - last used %s\n", item.item, item.count, time.Since(now))
+// 	}
+// }
 
 func main() {
 	startup := time.Now()
