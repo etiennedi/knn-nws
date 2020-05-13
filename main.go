@@ -142,12 +142,13 @@ func main() {
 		}
 
 		g.vectorForID = func(i int) []float32 {
-			vec, err := readVectorFromBolt(int64(i))
-			if err != nil {
-				log.Fatalf(err.Error())
-			}
+			return cache.get(i)
+			// vec, err := readVectorFromBolt(int64(i))
+			// if err != nil {
+			// 	log.Fatalf(err.Error())
+			// }
 
-			return vec
+			// return vec
 		}
 
 		f.Close()
@@ -190,6 +191,7 @@ func main() {
 		return ""
 	}
 
+	g.Stats()
 	handler := newHandlers(g, getIndex, getData)
 	http.Handle("/objects", http.HandlerFunc(handler.getObjects))
 	fmt.Printf("Startup took %s, Listening on :8080\n", time.Since(startup))
@@ -272,7 +274,7 @@ func buildNewIndex() (*hnsw, map[string]int) {
 		}
 
 	}
-	parseVectorsFromFile("./vectors.txt", limit, indexFn)
+	parseVectorsFromFile("./vectors-shuf.txt", limit, indexFn)
 
 	// let remaining workers finish and everything calm down
 

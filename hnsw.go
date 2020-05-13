@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"math"
 	"math/rand"
 	"sync"
@@ -86,7 +87,7 @@ func (h *hnsw) insert(node *hnswVertex) {
 	// the h-graph in the first iteration
 	currentMaximumLayer := h.currentMaximumLayer
 
-	targetLevel := int(math.Floor(-math.Log(rand.Float64() * h.levelNormalizer)))
+	targetLevel := int(math.Floor(-math.Log(rand.Float64()*h.levelNormalizer))) - 1
 
 	before = time.Now()
 	node.Lock()
@@ -311,4 +312,32 @@ func (h *hnsw) knnSearch(queryNodeID int, k int, ef int) []int {
 	}
 
 	return out
+}
+
+func (h *hnsw) Stats() {
+	fmt.Printf("levels: %d\n", h.currentMaximumLayer)
+
+	perLevelCount := map[int]uint{}
+
+	for _, node := range h.nodes {
+		if node == nil {
+			continue
+		}
+		l := node.level
+		if l == 0 && len(node.connections) == 0 {
+			// filter out allocated space without nodes
+			continue
+		}
+		c, ok := perLevelCount[l]
+		if !ok {
+			perLevelCount[l] = 0
+		}
+
+		perLevelCount[l] = c + 1
+	}
+
+	for level, count := range perLevelCount {
+		fmt.Printf("unique count on level %d: %d\n", level, count)
+	}
+
 }
