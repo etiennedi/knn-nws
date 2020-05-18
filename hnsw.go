@@ -41,6 +41,8 @@ type hnsw struct {
 	nodes []*hnswVertex
 
 	vectorForID func(id int) []float32
+
+	commitLog *hnswCommitLogger
 }
 
 // func (h *hnsw) topLevel() int {
@@ -57,6 +59,7 @@ func newHnsw(maximumConnections int, efConstruction int, vectorForID func(id int
 		efConstruction:              efConstruction,
 		nodes:                       make([]*hnswVertex, 0, 100000), // TODO: grow variably rather than fixed length
 		vectorForID:                 vectorForID,
+		commitLog:                   newHnswCommitLogger(),
 	}
 
 }
@@ -70,12 +73,14 @@ func (h *hnsw) insert(node *hnswVertex) {
 
 	if total == 0 {
 		h.Lock()
+		h.commitLog.SetEntryPointWithMaxLayer(node.id, 0)
 		h.entryPointID = node.id
+		h.currentMaximumLayer = 0
 		node.connections = map[int][]uint32{}
 		node.level = 0
 		h.nodes = make([]*hnswVertex, 100000)
+		h.commitLog.AddNode(node)
 		h.nodes[node.id] = node
-		h.currentMaximumLayer = 0
 		h.Unlock()
 		return
 	}
@@ -101,6 +106,7 @@ func (h *hnsw) insert(node *hnswVertex) {
 	m.addBuildingLocking(before)
 	nodeId := node.id
 	h.nodes[nodeId] = node
+	h.commitLog.AddNode(node)
 	h.Unlock()
 
 	// in case the new target is lower than the current max, we need to search
@@ -128,8 +134,8 @@ func (h *hnsw) insert(node *hnswVertex) {
 			neighbor := h.nodes[neighborID]
 			h.RUnlock()
 
-			neighbor.linkAtLevel(level, uint32(nodeId))
-			node.linkAtLevel(level, uint32(neighbor.id))
+			neighbor.linkAtLevel(level, uint32(nodeId), h.commitLog)
+			node.linkAtLevel(level, uint32(neighbor.id), h.commitLog)
 
 			before = time.Now()
 			neighbor.RLock()
@@ -153,6 +159,7 @@ func (h *hnsw) insert(node *hnswVertex) {
 			before = time.Now()
 			neighbor.Lock()
 			m.addBuildingItemLocking(before)
+			h.commitLog.ReplaceLinksAtLevel(neighbor.id, level, updatedConnections)
 			neighbor.connections[level] = updatedConnections
 			neighbor.Unlock()
 		}
@@ -162,6 +169,7 @@ func (h *hnsw) insert(node *hnswVertex) {
 		before = time.Now()
 		h.Lock()
 		m.addBuildingLocking(before)
+		h.commitLog.SetEntryPointWithMaxLayer(nodeId, targetLevel)
 		h.entryPointID = nodeId
 		h.currentMaximumLayer = targetLevel
 		h.Unlock()
@@ -256,8 +264,9 @@ func (h *hnsw) selectNeighborsSimpleFromId(nodeId int, ids []uint32, max int) []
 	return h.selectNeighborsSimple(nodeId, *bst, max)
 }
 
-func (v *hnswVertex) linkAtLevel(level int, target uint32) {
+func (v *hnswVertex) linkAtLevel(level int, target uint32, cl *hnswCommitLogger) {
 	v.Lock()
+	cl.AddLinkAtLevel(v.id, level, target)
 	v.connections[level] = append(v.connections[level], target)
 	v.Unlock()
 }

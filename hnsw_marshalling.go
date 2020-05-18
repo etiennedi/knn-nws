@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"compress/gzip"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -11,34 +10,30 @@ import (
 func (h *hnsw) MarshalGzip() ([]byte, error) {
 	ec := &errorCompounder{}
 	b := bytes.NewBuffer(nil)
-	z := gzip.NewWriter(b)
 
-	ec.add(h.writeAsInt64(z, h.maximumConnections))
-	ec.add(h.writeAsInt64(z, h.maximumConnectionsLayerZero))
-	ec.add(h.writeAsInt64(z, h.currentMaximumLayer))
-	ec.add(h.writeAsInt64(z, h.entryPointID))
-	ec.add(h.writeAsInt64(z, h.efConstruction))
-	ec.add(h.writeFloat64(z, h.levelNormalizer))
+	ec.add(h.writeAsInt64(b, h.maximumConnections))
+	ec.add(h.writeAsInt64(b, h.maximumConnectionsLayerZero))
+	ec.add(h.writeAsInt64(b, h.currentMaximumLayer))
+	ec.add(h.writeAsInt64(b, h.entryPointID))
+	ec.add(h.writeAsInt64(b, h.efConstruction))
+	ec.add(h.writeFloat64(b, h.levelNormalizer))
 
-	ec.add(h.writeAsInt64(z, len(h.nodes)))
+	ec.add(h.writeAsInt64(b, len(h.nodes)))
 	for _, node := range h.nodes {
 		if node == nil {
 			// in case we grew further than what we actually need
 			continue
 		}
-		ec.add(h.writeAsInt64(z, node.id))
-		ec.add(h.writeAsInt64(z, node.level))
+		ec.add(h.writeAsInt64(b, node.id))
+		ec.add(h.writeAsInt64(b, node.level))
 		connectionLevels := len(node.connections)
-		ec.add(h.writeAsInt64(z, connectionLevels))
+		ec.add(h.writeAsInt64(b, connectionLevels))
 		for level, conns := range node.connections {
-			ec.add(h.writeAsInt64(z, level))
+			ec.add(h.writeAsInt64(b, level))
 			connectionsLength := len(conns)
-			ec.add(h.writeAsInt64(z, connectionsLength))
-			ec.add(h.writeUint32Slice(z, conns))
+			ec.add(h.writeAsInt64(b, connectionsLength))
+			ec.add(h.writeUint32Slice(b, conns))
 		}
-	}
-	if err := z.Close(); err != nil {
-		return nil, err
 	}
 
 	if len(ec.errors) != 0 {
@@ -79,59 +74,51 @@ func (h *hnsw) writeUint32Slice(w io.Writer, in []uint32) error {
 func UnmarshalGzip(in []byte, g *hnsw) error {
 	ec := &errorCompounder{}
 	b := bytes.NewBuffer(in)
-	z, err := gzip.NewReader(b)
-	if err != nil {
-		return err
-	}
+	var err error
 
-	g.maximumConnections, err = g.readFromInt64(z)
+	g.maximumConnections, err = g.readFromInt64(b)
 	ec.add(err)
-	g.maximumConnectionsLayerZero, err = g.readFromInt64(z)
+	g.maximumConnectionsLayerZero, err = g.readFromInt64(b)
 	ec.add(err)
-	g.currentMaximumLayer, err = g.readFromInt64(z)
+	g.currentMaximumLayer, err = g.readFromInt64(b)
 	ec.add(err)
-	g.entryPointID, err = g.readFromInt64(z)
+	g.entryPointID, err = g.readFromInt64(b)
 	ec.add(err)
-	g.efConstruction, err = g.readFromInt64(z)
+	g.efConstruction, err = g.readFromInt64(b)
 	ec.add(err)
-	g.levelNormalizer, err = g.readFloat64(z)
+	g.levelNormalizer, err = g.readFloat64(b)
 	ec.add(err)
 
-	lenNodes, err := g.readFromInt64(z)
+	lenNodes, err := g.readFromInt64(b)
 	ec.add(err)
 
 	g.nodes = make([]*hnswVertex, lenNodes)
 	for i := range g.nodes {
 		node := hnswVertex{}
-		node.id, err = g.readFromInt64(z)
+		node.id, err = g.readFromInt64(b)
 		ec.add(err)
 
-		node.level, err = g.readFromInt64(z)
+		node.level, err = g.readFromInt64(b)
 		ec.add(err)
 
-		levelsLength, err := g.readFromInt64(z)
+		levelsLength, err := g.readFromInt64(b)
 		ec.add(err)
 
 		node.connections = map[int][]uint32{}
 		for i := levelsLength; i > 0; i-- {
-			level, err := g.readFromInt64(z)
+			level, err := g.readFromInt64(b)
 			ec.add(err)
 
-			connectionsLength, err := g.readFromInt64(z)
+			connectionsLength, err := g.readFromInt64(b)
 			ec.add(err)
 
-			connections, err := g.readUint32Slice(z, connectionsLength)
+			connections, err := g.readUint32Slice(b, connectionsLength)
 			ec.add(err)
 
 			node.connections[level] = connections
 		}
 
 		g.nodes[i] = &node
-	}
-
-	err = z.Close()
-	if err != nil {
-		return err
 	}
 
 	return nil

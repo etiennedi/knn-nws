@@ -44,6 +44,7 @@ func (v *vertex) String() string {
 }
 
 var k = 36
+var vectorsFile = "./vectors-shuf.txt"
 
 type job struct {
 	index  int64
@@ -206,7 +207,7 @@ func main() {
 func buildNewIndex() (*hnsw, map[string]int) {
 	m.reset()
 
-	limit := 10000
+	limit := 50000
 
 	parseFlags()
 
@@ -236,7 +237,7 @@ func buildNewIndex() (*hnsw, map[string]int) {
 		}
 
 	}
-	wordToIndex := parseVectorsFromFile("./vectors-shuf.txt", limit, insertFn)
+	wordToIndex := parseVectorsFromFile(vectorsFile, limit, insertFn)
 
 	// g := &nsw{}
 	g := newHnsw(30, 60, func(i int) []float32 {
@@ -274,7 +275,7 @@ func buildNewIndex() (*hnsw, map[string]int) {
 		}
 
 	}
-	parseVectorsFromFile("./vectors-shuf.txt", limit, indexFn)
+	parseVectorsFromFile(vectorsFile, limit, indexFn)
 
 	// let remaining workers finish and everything calm down
 
