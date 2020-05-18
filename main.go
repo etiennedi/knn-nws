@@ -19,7 +19,7 @@ import (
 type vertex struct {
 	object         string
 	internalvector []float32
-	edges          []*vertex // used by nsw TODO: remove
+	edges          []*vertex // used by nsw
 	edgeLinks      map[int64]struct{}
 	index          int64
 	sync.RWMutex
