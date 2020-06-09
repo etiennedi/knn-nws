@@ -56,10 +56,14 @@ func storeToBolt(index int64, vector []float32) error {
 	before := time.Now()
 	defer m.addWritingDisk(before)
 
-	err := db.Update(func(tx *bolt.Tx) error {
+	err := db.Batch(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte("Vectors"))
 		err := b.Put([]byte(fmt.Sprintf("%d", index)), vectorToBytes(vector))
-		return err
+		if err != nil {
+			return err
+		}
+
+		return nil
 	})
 
 	if err != nil {

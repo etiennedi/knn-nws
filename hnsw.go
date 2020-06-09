@@ -43,6 +43,9 @@ type hnsw struct {
 	vectorForID func(id int) []float32
 
 	commitLog *hnswCommitLogger
+
+	// for distributed spike, can be used to call a insertExternal on a different graph
+	insertHook func(node, targetLevel int, neighborsAtLevel map[int][]uint32)
 }
 
 // func (h *hnsw) topLevel() int {
@@ -60,6 +63,77 @@ func newHnsw(maximumConnections int, efConstruction int, vectorForID func(id int
 		nodes:                       make([]*hnswVertex, 0, 100000), // TODO: grow variably rather than fixed length
 		vectorForID:                 vectorForID,
 		commitLog:                   newHnswCommitLogger(),
+	}
+
+}
+
+func (h *hnsw) insertFromExternal(nodeId, targetLevel int, neighborsAtLevel map[int][]uint32) {
+	h.RLock()
+	total := len(h.nodes)
+	h.RUnlock()
+
+	node := &hnswVertex{}
+	if total == 0 {
+		h.Lock()
+		h.commitLog.SetEntryPointWithMaxLayer(node.id, 0)
+		h.entryPointID = node.id
+		h.currentMaximumLayer = 0
+		node.connections = map[int][]uint32{}
+		node.level = 0
+		h.nodes = make([]*hnswVertex, 100000)
+		h.commitLog.AddNode(node)
+		h.nodes[node.id] = node
+		h.Unlock()
+		return
+	}
+
+	currentMaximumLayer := h.currentMaximumLayer
+	h.Lock()
+	h.nodes[nodeId] = node
+	h.commitLog.AddNode(node)
+	h.Unlock()
+
+	for level := min(targetLevel, currentMaximumLayer); level >= 0; level-- {
+		neighbors := neighborsAtLevel[level]
+
+		for _, neighborID := range neighbors {
+			h.RLock()
+			neighbor := h.nodes[neighborID]
+			h.RUnlock()
+
+			neighbor.linkAtLevel(level, uint32(nodeId), h.commitLog)
+			node.linkAtLevel(level, uint32(neighbor.id), h.commitLog)
+
+			neighbor.RLock()
+			currentConnections := neighbor.connections[level]
+			neighbor.RUnlock()
+
+			maximumConnections := h.maximumConnections
+			if level == 0 {
+				maximumConnections = h.maximumConnectionsLayerZero
+			}
+
+			if len(currentConnections) <= maximumConnections {
+				// nothing to do, skip
+				continue
+			}
+
+			// TODO: support both neighbor selection algos
+			updatedConnections := h.selectNeighborsSimpleFromId(nodeId, currentConnections, maximumConnections)
+
+			neighbor.Lock()
+			h.commitLog.ReplaceLinksAtLevel(neighbor.id, level, updatedConnections)
+			neighbor.connections[level] = updatedConnections
+			neighbor.Unlock()
+		}
+	}
+
+	if targetLevel > h.currentMaximumLayer {
+		h.Lock()
+		h.commitLog.SetEntryPointWithMaxLayer(nodeId, targetLevel)
+		h.entryPointID = nodeId
+		h.currentMaximumLayer = targetLevel
+		h.Unlock()
 	}
 
 }
@@ -82,6 +156,8 @@ func (h *hnsw) insert(node *hnswVertex) {
 		h.commitLog.AddNode(node)
 		h.nodes[node.id] = node
 		h.Unlock()
+
+		go h.insertHook(node.id, 0, node.connections)
 		return
 	}
 	// initially use the "global" entrypoint which is guaranteed to be on the
@@ -121,11 +197,16 @@ func (h *hnsw) insert(node *hnswVertex) {
 	var results = &binarySearchTreeGeneric{}
 	results.insert(entryPointID, h.distBetweenNodes(nodeId, entryPointID))
 
+	neighborsAtLevel := make(map[int][]uint32) // for distributed spike
+
 	for level := min(targetLevel, currentMaximumLayer); level >= 0; level-- {
 		results = h.searchLayer(node, *results, h.efConstruction, level)
 
 		// TODO: support both neighbor selection algos
 		neighbors := h.selectNeighborsSimple(nodeId, *results, h.maximumConnections)
+
+		// for distributed spike
+		neighborsAtLevel[level] = neighbors
 
 		for _, neighborID := range neighbors {
 			before := time.Now()
@@ -164,6 +245,8 @@ func (h *hnsw) insert(node *hnswVertex) {
 			neighbor.Unlock()
 		}
 	}
+
+	go h.insertHook(nodeId, targetLevel, neighborsAtLevel)
 
 	if targetLevel > h.currentMaximumLayer {
 		before = time.Now()

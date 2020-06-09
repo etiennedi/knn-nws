@@ -49,6 +49,7 @@ var vectorsFile = "./vectors-shuf.txt"
 type job struct {
 	index  int64
 	object string
+	vector []float32
 }
 
 func nswWorker(graph *nsw, workerid int, jobs chan job) {
@@ -59,6 +60,13 @@ func nswWorker(graph *nsw, workerid int, jobs chan job) {
 
 func hnswWorker(graph *hnsw, workerid int, jobs chan job) {
 	for job := range jobs {
+		before := time.Now()
+		err := storeToBolt(job.index, job.vector)
+		if err != nil {
+			log.Printf("bolt error: %v\n", err)
+		}
+		m.addWritingDisk(before)
+
 		graph.insert(&hnswVertex{id: int(job.index)})
 	}
 }
@@ -207,7 +215,7 @@ func main() {
 func buildNewIndex() (*hnsw, map[string]int) {
 	m.reset()
 
-	limit := 50000
+	limit := 1000
 
 	parseFlags()
 
@@ -219,25 +227,25 @@ func buildNewIndex() (*hnsw, map[string]int) {
 		}
 	}
 
-	insertFn := func(i int, word string, vector []float32) {
-		err := storeToBolt(int64(i), vector)
-		if err != nil {
-			log.Printf("bolt error: %v\n", err)
-		}
+	// insertFn := func(i int, word string, vector []float32) {
+	// 	err := storeToBolt(int64(i), vector)
+	// 	if err != nil {
+	// 		log.Printf("bolt error: %v\n", err)
+	// 	}
 
-		if flagBenchmarkElastic {
-			err := storeToES(i, word, vector)
-			if err != nil {
-				fmt.Printf("es error: %s\n", err)
-			}
-		}
+	// 	if flagBenchmarkElastic {
+	// 		err := storeToES(i, word, vector)
+	// 		if err != nil {
+	// 			fmt.Printf("es error: %s\n", err)
+	// 		}
+	// 	}
 
-		if i%100 == 0 {
-			fmt.Printf(".")
-		}
+	// 	if i%100 == 0 {
+	// 		fmt.Printf(".")
+	// 	}
 
-	}
-	wordToIndex := parseVectorsFromFile(vectorsFile, limit, insertFn)
+	// }
+	// wordToIndex := parseVectorsFromFile(vectorsFile, limit, insertFn)
 
 	// g := &nsw{}
 	g := newHnsw(30, 60, func(i int) []float32 {
@@ -249,6 +257,10 @@ func buildNewIndex() (*hnsw, map[string]int) {
 
 		return cache.get(i)
 	})
+
+	g.insertHook = func(nodeId, targetLevel int, neighborsAtLevel map[int][]uint32) {
+		fmt.Printf("insert %d at level %d with connections %v\n", nodeId, targetLevel, neighborsAtLevel)
+	}
 
 	m.writeTimes(os.Stdout)
 	m.reset()
@@ -264,7 +276,7 @@ func buildNewIndex() (*hnsw, map[string]int) {
 
 	start := time.Now()
 	indexFn := func(i int, word string, vector []float32) {
-		jobs <- job{object: word, index: int64(i)}
+		jobs <- job{object: word, index: int64(i), vector: vector}
 
 		if i%100 == 0 {
 			// technically we're measuring the time between jobs we start, not jobs
@@ -275,7 +287,7 @@ func buildNewIndex() (*hnsw, map[string]int) {
 		}
 
 	}
-	parseVectorsFromFile(vectorsFile, limit, indexFn)
+	wordToIndex := parseVectorsFromFile(vectorsFile, limit, indexFn)
 
 	// let remaining workers finish and everything calm down
 
