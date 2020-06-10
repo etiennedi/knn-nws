@@ -13,21 +13,23 @@ import (
 )
 
 type handlers struct {
-	graph    *hnsw
-	getIndex getIndexFn
-	getData  getDataFn
+	primary   *hnsw
+	secondary *hnsw
+	getIndex  getIndexFn
+	getData   getDataFn
 }
 type getIndexFn func(name string) int64
 type getDataFn func(int64) string
 
-func newHandlers(g *hnsw, getIndex getIndexFn, getData getDataFn) *handlers {
-	return &handlers{graph: g, getIndex: getIndex, getData: getData}
+func newHandlers(primary *hnsw, secondary *hnsw, getIndex getIndexFn, getData getDataFn) *handlers {
+	return &handlers{primary: primary, secondary: secondary, getIndex: getIndex, getData: getData}
 }
 
 func (h *handlers) getObjects(w http.ResponseWriter, r *http.Request) {
 	qv := r.URL.Query()
 	name := qv.Get("name")
 	sizeStr := qv.Get("size")
+	_, secondary := qv["secondary"]
 	var size int
 	if sizeStr == "" {
 		size = 15
@@ -43,7 +45,17 @@ func (h *handlers) getObjects(w http.ResponseWriter, r *http.Request) {
 		h.benchmark(w, r, indexPos, size)
 		return
 	}
-	res := h.graph.knnSearch(int(indexPos), size, 100)
+
+	var g *hnsw
+	if secondary {
+		fmt.Println("serving from secondary index")
+		g = h.secondary
+	} else {
+		fmt.Println("serving from primary index")
+		g = h.primary
+	}
+
+	res := g.knnSearch(int(indexPos), size, 100)
 	took := time.Since(before)
 
 	results := make([]result, len(res))

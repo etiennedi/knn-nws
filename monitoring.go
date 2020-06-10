@@ -27,6 +27,9 @@ type monitoring struct {
 	spentBuildingReadLockingBeginning time.Duration
 	spentBuildingLocking              time.Duration
 	spentBuildingItemLocking          time.Duration
+
+	// as part of the distributed hnsw spike
+	spentBuildingReplication time.Duration
 }
 
 func newMonitoring() *monitoring {
@@ -77,11 +80,14 @@ building read locking beginning: %s
 building node locking: %s
 building locking: %s
 
+building distributed replication: %s
+
 total: %s
 `, m.spentInserting, m.spentContains, m.spentFlattening, m.spentDeleting,
 		m.spentDistancing, m.spentMinMax, m.spentReadingDisk, m.spentWritingDisk,
 		m.spentCachePurging, m.spentCacheReadLocking, m.spentCacheItemLocking, m.spentCacheLocking,
 		m.spentBuildingReadLocking, m.spentBuildingReadLockingBeginning, m.spentBuildingItemLocking, m.spentBuildingLocking,
+		m.spentBuildingReplication,
 		time.Since(m.startTime))
 }
 
@@ -179,4 +185,10 @@ func (m *monitoring) addBuildingItemLocking(t time.Time) {
 	m.Lock()
 	defer m.Unlock()
 	m.spentBuildingItemLocking += time.Since(t)
+}
+
+func (m *monitoring) addBuildingReplication(t time.Time) {
+	m.Lock()
+	defer m.Unlock()
+	m.spentBuildingReplication += time.Since(t)
 }

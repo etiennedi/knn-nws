@@ -13,8 +13,6 @@ import (
 
 type hnsw struct {
 	sync.RWMutex
-	// layers []hnswLayer
-	vertices []*hnswVertex
 
 	// Each node should not have more edges than this number
 	maximumConnections int
@@ -46,6 +44,8 @@ type hnsw struct {
 
 	// for distributed spike, can be used to call a insertExternal on a different graph
 	insertHook func(node, targetLevel int, neighborsAtLevel map[int][]uint32)
+
+	id string
 }
 
 // func (h *hnsw) topLevel() int {
@@ -54,7 +54,7 @@ type hnsw struct {
 
 type hnswLayer struct{}
 
-func newHnsw(maximumConnections int, efConstruction int, vectorForID func(id int) []float32) *hnsw {
+func newHnsw(id string, maximumConnections int, efConstruction int, vectorForID func(id int) []float32) *hnsw {
 	return &hnsw{
 		maximumConnections:          maximumConnections,
 		maximumConnectionsLayerZero: 2 * maximumConnections,                    // inspired by original paper and other implementations
@@ -63,16 +63,32 @@ func newHnsw(maximumConnections int, efConstruction int, vectorForID func(id int
 		nodes:                       make([]*hnswVertex, 0, 100000), // TODO: grow variably rather than fixed length
 		vectorForID:                 vectorForID,
 		commitLog:                   newHnswCommitLogger(),
+		id:                          id,
 	}
 
 }
 
 func (h *hnsw) insertFromExternal(nodeId, targetLevel int, neighborsAtLevel map[int][]uint32) {
+	defer m.addBuildingReplication(time.Now())
+
+	var node *hnswVertex
 	h.RLock()
 	total := len(h.nodes)
+	if total > nodeId {
+		node = h.nodes[nodeId] // it could be that we implicitly added this node already because it was referenced
+	}
 	h.RUnlock()
 
-	node := &hnswVertex{}
+	if node == nil {
+		node = &hnswVertex{
+			id:          nodeId,
+			connections: make(map[int][]uint32),
+			level:       targetLevel,
+		}
+	} else {
+		node.level = targetLevel
+	}
+
 	if total == 0 {
 		h.Lock()
 		h.commitLog.SetEntryPointWithMaxLayer(node.id, 0)
@@ -99,6 +115,15 @@ func (h *hnsw) insertFromExternal(nodeId, targetLevel int, neighborsAtLevel map[
 		for _, neighborID := range neighbors {
 			h.RLock()
 			neighbor := h.nodes[neighborID]
+			if neighbor == nil {
+				// due to everything being parallel it could be that the linked neighbor
+				// doesn't exist yet
+				h.nodes[neighborID] = &hnswVertex{
+					id:          int(neighborID),
+					connections: make(map[int][]uint32),
+				}
+				neighbor = h.nodes[neighborID]
+			}
 			h.RUnlock()
 
 			neighbor.linkAtLevel(level, uint32(nodeId), h.commitLog)

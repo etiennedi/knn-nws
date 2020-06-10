@@ -58,7 +58,7 @@ func nswWorker(graph *nsw, workerid int, jobs chan job) {
 	}
 }
 
-func hnswWorker(graph *hnsw, workerid int, jobs chan job) {
+func hnswWorker(primary, secondary *hnsw, workerid int, jobs chan job) {
 	for job := range jobs {
 		before := time.Now()
 		err := storeToBolt(job.index, job.vector)
@@ -66,6 +66,13 @@ func hnswWorker(graph *hnsw, workerid int, jobs chan job) {
 			log.Printf("bolt error: %v\n", err)
 		}
 		m.addWritingDisk(before)
+
+		var graph *hnsw
+		if rand.Float32() < 0.5 {
+			graph = primary
+		} else {
+			graph = secondary
+		}
 
 		graph.insert(&hnswVertex{id: int(job.index)})
 	}
@@ -131,6 +138,7 @@ func main() {
 	defer db.Close()
 
 	var g = &hnsw{}
+	var secondary *hnsw
 	var wordToIndex map[string]int
 
 	if fileExists("./data/hnsw.index") {
@@ -180,7 +188,7 @@ func main() {
 
 	} else {
 		// build new
-		g, wordToIndex = buildNewIndex()
+		g, secondary, wordToIndex = buildNewIndex()
 
 	}
 
@@ -200,8 +208,7 @@ func main() {
 		return ""
 	}
 
-	g.Stats()
-	handler := newHandlers(g, getIndex, getData)
+	handler := newHandlers(g, secondary, getIndex, getData)
 	http.Handle("/objects", http.HandlerFunc(handler.getObjects))
 	fmt.Printf("Startup took %s, Listening on :8080\n", time.Since(startup))
 
@@ -212,7 +219,7 @@ func main() {
 
 }
 
-func buildNewIndex() (*hnsw, map[string]int) {
+func buildNewIndex() (*hnsw, *hnsw, map[string]int) {
 	m.reset()
 
 	limit := 1000
@@ -248,7 +255,7 @@ func buildNewIndex() (*hnsw, map[string]int) {
 	// wordToIndex := parseVectorsFromFile(vectorsFile, limit, insertFn)
 
 	// g := &nsw{}
-	g := newHnsw(30, 60, func(i int) []float32 {
+	g := newHnsw("primary", 30, 60, func(i int) []float32 {
 		// vec, err := readVectorFromBolt(int64(i))
 		// if err != nil {
 		// 	log.Fatalf(err.Error())
@@ -258,8 +265,14 @@ func buildNewIndex() (*hnsw, map[string]int) {
 		return cache.get(i)
 	})
 
+	secondary := newHnsw("secondary", 30, 60, cache.get)
+
 	g.insertHook = func(nodeId, targetLevel int, neighborsAtLevel map[int][]uint32) {
-		fmt.Printf("insert %d at level %d with connections %v\n", nodeId, targetLevel, neighborsAtLevel)
+		secondary.insertFromExternal(nodeId, targetLevel, neighborsAtLevel)
+	}
+
+	secondary.insertHook = func(nodeId, targetLevel int, neighborsAtLevel map[int][]uint32) {
+		g.insertFromExternal(nodeId, targetLevel, neighborsAtLevel)
 	}
 
 	m.writeTimes(os.Stdout)
@@ -271,7 +284,7 @@ func buildNewIndex() (*hnsw, map[string]int) {
 	for i := 0; i < numWorkers; i++ {
 		fmt.Printf("starting worker %d\n", i)
 		// go nswWorker(g, i, jobs)
-		go hnswWorker(g, i, jobs)
+		go hnswWorker(g, secondary, i, jobs)
 	}
 
 	start := time.Now()
@@ -328,7 +341,13 @@ func buildNewIndex() (*hnsw, map[string]int) {
 	f.Close()
 
 	m.writeTimes(os.Stdout)
-	return g, wordToIndex
+
+	fmt.Println("primary:")
+	g.Stats()
+	fmt.Println("secondary:")
+	secondary.Stats()
+
+	return g, secondary, wordToIndex
 }
 
 type vertexWithDistance struct {
